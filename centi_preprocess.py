@@ -103,27 +103,28 @@ class MainWindow(QMainWindow):
             self.load_values_json()
 
     def load_values_json(self):
-        filename = self.browse_line.text()
+        filename = Path(self.browse_line.text()).name
         file = self.json_file
-        try:
-            with open(file, 'r') as json_file:
-                file_data = json.load(json_file)
-                if filename in file_data:
-                    parameter_data = file_data[filename]
+        with open(file, 'r') as json_file:
+            try:
+                json_data = json.load(json_file)
+                if filename in json_data:
+                    parameter_data = json_data[filename]
                     dict_values = list(parameter_data.values())
                     for count, edit in enumerate(self.param_edit_list):
                         edit.setText(str(dict_values[count]))
                 else:
                     for count, edit in enumerate(self.param_edit_list):
                         default_value = str(self.default_values[count])
-                        edit.setPlaceholderText(default_value)
-        except FileNotFoundError:
-            for count, edit in enumerate(self.param_edit_list):
-                default_value = str(self.default_values[count])
-                edit.setPlaceholderText(default_value)
+                        edit.setText(default_value)
+            except json.JSONDecodeError:
+                for count, edit in enumerate(self.param_edit_list):
+                    default_value = str(self.default_values[count])
+                    edit.setText(default_value)
 
     def update_values_json(self):
-        filename = self.browse_line.text()
+        file_path = self.browse_line.text()
+        filename = Path(file_path).name
         param_values = []
         for idx, edit in enumerate(self.param_edit_list):
             text = edit.text()
@@ -138,7 +139,7 @@ class MainWindow(QMainWindow):
         try:
             with open(file, 'r') as json_file:
                 file_data = json.load(json_file)
-        except FileNotFoundError:
+        except:
             pass
         finally:
             file_data[filename] = parameter_data
@@ -146,7 +147,7 @@ class MainWindow(QMainWindow):
                 json.dump(file_data, json_file, indent=4)
 
         self.data = parameter_data
-        self.filename = filename
+        self.filepath = file_path
         self.close()
 
 
@@ -194,7 +195,7 @@ filename = "polym_t4_d6.mp4"
 filename = "subB_t3_d4.mp4"
 
 
-full_path = window.filename
+full_path = window.filepath
 filename = Path(full_path).name
 
 def mask_frame(frame, mask_vals):
@@ -416,7 +417,7 @@ def update_head_json(head):
     try:
         with open(file, 'r') as json_file:
             data = json.load(json_file)
-    except FileNotFoundError:
+    except:
         pass
     finally:
         data[file_title] = head.tolist()
@@ -427,9 +428,16 @@ def update_head_json(head):
 file_path = full_path
 file_title = filename.split(".")[0]
 
+print(file_path)
+
 cap = cv2.VideoCapture(file_path)
 
 # ret, first_frame = cap.read()
+
+if cap.isOpened():
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
 
 while (cap.isOpened()):
     ret, frame = cap.read()
@@ -437,15 +445,14 @@ while (cap.isOpened()):
         break
     min_x, max_x, min_y, max_y = preprocess_frame(frame)
 
+
 cap.release()
 
 
 cap_real = cv2.VideoCapture(file_path)
 
-if cap_real.isOpened():
-    fps = cap_real.get(cv2.CAP_PROP_FPS)
-    height = cap_real.get(cv2.CAP_PROP_FRAME_HEIGHT)
-    width = cap_real.get(cv2.CAP_PROP_FRAME_WIDTH)
+print(cap_real.isOpened())
+
 
 new_vid_coords = calc_vid_dims(height, width)
 top, bottom, left, right = new_vid_coords

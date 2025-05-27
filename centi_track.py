@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import json
 from collections import deque
 from pathlib import Path
+import time
 
 # 
 full_file_path_to_video = "compressed/subB_t3_d4_labelled.mp4"
@@ -417,7 +418,7 @@ class centipede:
             right_leg_angles.append(leg_angle)
         self.csv_left_leg_angles.append(left_leg_angles)
         self.csv_right_leg_angles.append(right_leg_angles)
-        print(self.frame_count)
+        # print(self.frame_count)
 
 
     def get_antennae_segments(self):
@@ -491,8 +492,8 @@ class centipede:
 
     def draw_legs(self, frame):
         cv2.drawContours(frame, self.antennae_contours, -1, (255, 255, 0), 2)
-        for point in self.branches:
-            cv2.circle(frame, point, 3, (0, 0, 255), -1)
+        # for point in self.branches:
+        #     cv2.circle(frame, point, 3, (0, 0, 255), -1)
         for point in self.leaves:
             cv2.circle(frame, point, 3, (0, 255, 0), -1)
         # for point in self.feet:
@@ -837,6 +838,7 @@ if cap.isOpened():
 video_name = f"output_files/videos/{file_title}_labelled.mp4"
 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
 video = cv2.VideoWriter(video_name, fourcc, fps, (int(width), int(height))) 
+start_time = time.time()
 
 #around 44 contours
 while (cap.isOpened()):
@@ -850,11 +852,13 @@ while (cap.isOpened()):
     cv2.imshow('Frame', canvas_frame)
     cv2.imshow("Processed", processed_frame)
 
-    video.write(big_frame)
+    video.write(canvas_frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
     # cv2.waitKey(0)
 
+end_time = time.time()
+print(f"Processing time: {end_time - start_time} seconds")
 # release the video capture object
 cap.release()
 video.release()

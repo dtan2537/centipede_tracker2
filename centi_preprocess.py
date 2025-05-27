@@ -307,8 +307,13 @@ def process_frame(frame):
     
     midline_contour, _ = cv2.findContours(skeleton, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     midline_contour = np.array(midline_contour)
-    midline_contour = midline_contour[0, :, :, :]
-    find_head(midline_contour)
+    # print(midline_contour.shape)
+
+    if midline_contour.shape[0] == 0:
+        print("No midline contour found.")
+    else:
+        midline_contour = midline_contour[0, :, :, :]
+        find_head(midline_contour)
 
 
     midline_and_legs = legs_only_frame | skeleton
@@ -425,15 +430,16 @@ def update_head_json(head):
             json.dump(data, json_file, indent=4)
 
 
+# get path to video and extract the file title
 file_path = full_path
 file_title = filename.split(".")[0]
 
-print(file_path)
 
 cap = cv2.VideoCapture(file_path)
 
 # ret, first_frame = cap.read()
 
+# get video properties
 if cap.isOpened():
     fps = cap.get(cv2.CAP_PROP_FPS)
     height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
@@ -443,7 +449,7 @@ while (cap.isOpened()):
     ret, frame = cap.read()
     if ret == False:
         break
-    min_x, max_x, min_y, max_y = preprocess_frame(frame)
+    min_x, max_x, min_y, max_y = preprocess_frame(frame) # get the relevant video section only
 
 
 cap.release()
@@ -451,7 +457,6 @@ cap.release()
 
 cap_real = cv2.VideoCapture(file_path)
 
-print(cap_real.isOpened())
 
 
 new_vid_coords = calc_vid_dims(height, width)

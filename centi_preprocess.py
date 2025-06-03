@@ -325,13 +325,13 @@ def process_frame(frame):
     skeleton = (skeleton * 255).astype(np.uint8)
     
     midline_contour, _ = cv2.findContours(skeleton, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    midline_contour = np.array(midline_contour)
+    # midline_contour = np.array(midline_contour)
     # print(midline_contour.shape)
 
-    if midline_contour.shape[0] == 0:
-        print("No midline contour found.")
+    if len(midline_contour) == 0:
+        raise Exception("Parameters are not valid for this video. Please adjust the parameters in the UI.")
     else:
-        midline_contour = midline_contour[0, :, :, :]
+        midline_contour = midline_contour[0]
         find_head(midline_contour)
 
 

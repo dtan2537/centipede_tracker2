@@ -20,6 +20,8 @@ from PyQt6.QtWidgets import (
 )
 
 def set_directory_tree():
+    """Set up required directory structure for the application.
+    """
     Path("output_files").mkdir(parents=True, exist_ok=True)
     Path("output_files/csvs").mkdir(parents=True, exist_ok=True)
     Path("output_files/graphs").mkdir(parents=True, exist_ok=True)
@@ -32,6 +34,8 @@ def set_directory_tree():
 
 
 class MainWindow(QMainWindow):
+    """UI for the main window of the application.
+    """
     def __init__(self):
         super().__init__()
 
@@ -191,14 +195,23 @@ endpoint1_dist = 0
 endpoint2_dist = 0
 
 
-filename = "polym_t4_d6.mp4"
-filename = "subB_t3_d4.mp4"
+# filename = "polym_t4_d6.mp4"
+# filename = "subB_t3_d4.mp4"
 
 
 full_path = window.filepath
 filename = Path(full_path).name
 
 def mask_frame(frame, mask_vals):
+    """Mask components from window of video
+
+    Args:
+        frame (_type_): frame to be masked
+        mask_vals (_type_): how much is masked from each side of the frame
+
+    Returns:
+        _type_: new frame
+    """
     top, bottom, left, right = mask_vals
     height, width = frame.shape
     frame[:top, :] = 0             # Top region
@@ -208,6 +221,8 @@ def mask_frame(frame, mask_vals):
     return frame
 
 def calc_vid_dims(height, width):
+    """calculate the dimensions of the relevant video section
+    """
     tl = np.array((min_x, min_y)) #top left
     br = np.array((max_x, max_y)) # bottom right
     padding = np.linalg.norm(tl - br) * body_ant_ratio
@@ -223,11 +238,14 @@ def calc_vid_dims(height, width):
     return top, bottom, left, right
 
 def crop_frame(frame, coords):
+    """crop the frame to the relevant section
+    """
     top, bottom, left, right = coords
     new_frame = frame[top:bottom, left:right, :]
     return new_frame
 
 def preprocess_frame(frame):
+    """Preprocess the frame to find the midline of the centipede and find the relevant video section."""
     # top, bottom, left, right
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     # blur = cv2.GaussianBlur(gray, (3,3), 0)
@@ -259,6 +277,7 @@ def preprocess_frame(frame):
     return (new_min_x, new_max_x, new_min_y, new_max_y)
 
 def process_frame(frame):
+    """Process the frame to leave only legs and midline of the centipede."""
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     # blur = cv2.GaussianBlur(gray, (3,3), 0)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
@@ -357,6 +376,7 @@ def calculate_angle(A, B, C):
     return angle_deg 
 
 def find_head(mid_skele):
+    """Track the head of the centipede by determinging the vertex that is more exploratory"""
     global endpoint1, endpoint2, endpoint1_dist, endpoint2_dist, start_endpoint1, start_endpoint2
     epsilon = 0.003 * cv2.arcLength(mid_skele, True)
     midline_polygon = cv2.approxPolyDP(mid_skele, epsilon, True)

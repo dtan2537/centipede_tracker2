@@ -15,7 +15,8 @@ full_file_path_to_video = "compressed/subB_t3_d4_labelled.mp4"
 filename = Path(full_file_path_to_video).name
 
 class centipede:
-    ref_norm = [1, 0]
+
+    # ref_norm = [1, 0]
     def __init__(self, segments = 21, ant = 4):
         #we use 22 segemtns and 40 legs model
         self.tracking_started = False
@@ -46,6 +47,12 @@ class centipede:
 
     
     def update_centipede(self, process_frame, canvas_frame):
+        """Updates centipede model
+
+        Args:
+            process_frame (np.ndarray): processed frame to be analyzed
+            canvas_frame (np.ndarray): frame to be drawn on
+        """
         self.frame_count += 1
         self.frame = process_frame
         self.analyze_frame(process_frame)
@@ -53,6 +60,14 @@ class centipede:
         self.draw_legs(canvas_frame)
 
     def find_head(self, min_vertex1, min_idx1, min_vertex2, min_idx2):
+        """Finds head based on previous head position (first head position stored in json)
+
+        Args:
+            min_vertex1 (tuple): end vertex of first minimum angle
+            min_idx1 (int): _index_ of first minimum angle
+            min_vertex2 (tuple): end vertex of second minimum angle
+            min_idx2 (int):  _index_ of second minimum angle
+        """
         comparison_head = global_head if self.head is None else self.head
         min_vertex1_dist = Calculations.calc_dist(min_vertex1, comparison_head)
         min_vertex2_dist = Calculations.calc_dist(min_vertex2, comparison_head)
@@ -66,6 +81,11 @@ class centipede:
         self.head_tracking_csv.append(self.head) # track head every frame
             
     def analyze_frame(self, process_frame):
+        """Analyzes the processed frame to update centipede model
+
+        Args:
+            process_frame (np.ndarray): processed frame to be analyzed
+        """
         self.process_midline(process_frame)
         self.generate_segment_points()
         self.get_segment_angles()
@@ -79,18 +99,16 @@ class centipede:
         self.get_antennae_segments()
         self.separate_antennae()
         self.get_antennae_angles()
-        # self.order_legs()
-        # left_leg_angles, right_leg_angles = self.find_leg_angles()
-        # self.csv_left_leg_angles.append(left_leg_angles) 
-        # self.csv_right_leg_angles.append(right_leg_angles) 
-
-        # # self.temp_leg_angles.append(leg_angles)
-        # flip_var = -1 if self.track_head_idx == -1 else 1
-        # oriented_seg_points = self.segment_points[::flip_var]
-        # segment_angles = self.get_segment_angles(oriented_seg_points)
-        # self.csv_segment_angles.append(segment_angles)
 
     def process_midline(self, process_frame):
+        """segments legs and body and calculates centipede attributes
+
+        Args:
+            process_frame (np.ndarray): processed frame to be analyzed
+
+        Returns:
+            tuple: tuple containing minimum vertices and associated indices
+        """
         contours, _ = cv2.findContours(process_frame, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         arc_lengths = np.array([cv2.arcLength(c, True) for c in contours])
@@ -126,6 +144,8 @@ class centipede:
         return min_vertex1, min_idx1, min_vertex2, min_idx2
 
     def generate_segment_points(self):
+        """segment midline polygon into segments based on body length and number of segments
+        """
         # If segment lengths should remain unchanged, exit early
         segment_points_list = [self.head]
 
@@ -180,6 +200,8 @@ class centipede:
         self.segment_points = np.array(segment_points_list)
 
     def get_segment_angles(self):
+        """get the segments of each angle
+        """
         segment_angles = []
         for i in range(len(self.segment_points) - 2):
             A = self.segment_points[i]
@@ -190,6 +212,8 @@ class centipede:
         self.csv_segment_angles.append(segment_angles)
 
     def extend_segment_points(self):
+        """extend segment points along the head and tail to deal with antennae and tail
+        """
         extension_weight = 2
 
         extended_semgent_points = self.segment_points.tolist()
@@ -208,6 +232,14 @@ class centipede:
         self.extended_segment_points = np.array(extended_semgent_points)
 
     def is_shoulder(self, point):
+        """Check if a point is a shoulder based on its distance to the midline contour.
+
+        Args:
+            point (tuple): the point in question, typically a leaf point from the leg contours.
+
+        Returns:
+            bool: True if the point is a shoulder, False otherwise.
+        """
         # threshold for finding shoulders
         # could find distance of contour again instead of using body_gap_dist
         threshold = self.body_gap_dist * 1.25
@@ -216,6 +248,8 @@ class centipede:
         return dist < threshold
 
     def find_legs(self):
+        """Finds legs in the leg contours and extracts branches and leaves from their skeletonized graph.
+        """
         branches_list = []
         leaves_list = []
         legs = []
@@ -242,6 +276,18 @@ class centipede:
         self.leg_points = np.array(legs)
 
     def match_leg_points(self, branches, array_leaves, leaves, skeleton, tl_corner):
+        """Match leg points based on shoulders (leaves) and where they lead to (feet)
+
+        Args:
+            branches (_type_): points that have more than 2 neighbors (forks in the skeleton)
+            array_leaves (_type_): leaves that make my life more convenient (swapped leaves coordinates (x, y) to (y, x))
+            leaves (_type_): points that have only 1 neighbor (shoulders in the skeleton)
+            skeleton (_type_): skeletonized image of the leg contour
+            tl_corner (_type_): top-left corner of the bounding box of the leg contour (used for opitmization)
+
+        Returns:
+            list: legs represented as pairs of points (shoulder, foot)
+        """
         #leg structure: [shoulder, foot]
         legs = []
 
@@ -262,6 +308,8 @@ class centipede:
         return legs
 
     def remove_antennae(self):
+        """remove antennae from leg contours based on their distance to the extended head
+        """
         head = self.extended_segment_points[0]
         tail = self.extended_segment_points[-1]
         
@@ -306,6 +354,14 @@ class centipede:
 
 
     def extract_skeleton(self, contour):
+        """_summary_
+
+        Args:
+            contour (np.ndarray): contour of the leg to be skeletonized
+
+        Returns:
+            tuple: tuple containing skeltonized leg contour and its top-left corner
+        """
         blank = np.zeros(self.frame.shape, dtype=np.uint8)
         cv2.drawContours(blank, [contour], -1, 255, thickness=cv2.FILLED)
         x, y, w, h = cv2.boundingRect(contour)
@@ -314,6 +370,8 @@ class centipede:
         return skeleton, (x, y)
     
     def find_branch_features(self, skeleton):
+        """ clealry ai generated code to find branches and leaves in a skeleton
+        """
         """Find branch endpoints and branch junctions in a skeletonized tree."""
         # Define a kernel to count neighbors
         kernel = np.array([[1, 1, 1], 
@@ -332,6 +390,8 @@ class centipede:
         return branches, leaves
     
     def separate_legs(self):
+        """separates legs into left and right based on their distance to the extended segment points
+        """
         head = self.extended_segment_points[0]
         tail = self.extended_segment_points[-1]
         offset = Calculations.parallel_offset(head, tail, self.body_gap_dist)
@@ -358,6 +418,8 @@ class centipede:
         
     
     def order_legs(self):
+        """Orders legs based on their distance to the first extended segment point (head to tail).
+        """ 
         ordered_left_legs = []
         ordered_right_legs = []
 
@@ -404,6 +466,8 @@ class centipede:
         self.right_leg_points = np.array(ordered_right_legs)
 
     def get_leg_angles(self):
+        """get the angles of each of the legs relative to the closest body segment
+        """
         left_leg_angles = []
         right_leg_angles = []
         for leg in self.left_leg_points:
@@ -422,7 +486,8 @@ class centipede:
 
 
     def get_antennae_segments(self):
-        # get antennae segments
+        """get the segments of each antennae based on their distance to the midline contour
+        """
         min_dist = float('inf')
         max_dist = 0
         antennae_segments = []
@@ -450,6 +515,8 @@ class centipede:
             self.antennae_segments = self.antennae_segments[::-1]
 
     def get_antennae_angles(self):
+        """get the angles of each of the antennae relative to the closest body segment
+        """
         antennae_angles = []
 
         for leg in self.antennae_segments:
@@ -460,6 +527,8 @@ class centipede:
         self.csv_antennae_angles.append(antennae_angles)
 
     def find_body_gap_dist(self):
+        """find distance between body and legs to later use for separation of right and left legs
+        """
         weight = 1.25
         min_distances = []
         # closest_midline_contour_pts = []
@@ -480,6 +549,11 @@ class centipede:
 
 
     def draw_body(self, frame):
+        """Draws body on the canvas
+
+        Args:
+            frame (np.ndarray): canvas frame to draw on
+        """
         cv2.putText(frame, f"Frame: {self.frame_count}", (20, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
 
         drawable_segment_points = [self.segment_points[:, np.newaxis, :]]
@@ -491,6 +565,11 @@ class centipede:
             cv2.circle(frame, point, 3, (0, 255, 0), -1)
 
     def draw_legs(self, frame):
+        """Draw legs and all the other stuff on the canvas
+
+        Args:
+            frame (np.ndarray): frame to draw on
+        """
         cv2.drawContours(frame, self.antennae_contours, -1, (255, 255, 0), 2)
         # for point in self.branches:
         #     cv2.circle(frame, point, 3, (0, 0, 255), -1)

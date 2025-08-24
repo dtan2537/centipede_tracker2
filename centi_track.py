@@ -11,7 +11,7 @@ from pathlib import Path
 import time
 
 # 
-full_file_path_to_video = "compressed/subB_t3_d4_labelled.mp4"
+full_file_path_to_video = r"C:\Users\data\Documents\gatech assignments\CrabLab\centipede_tracker2\processed_videos\2025_06_18_15_01_27_Top_subA2_labelled.mp4"
 filename = Path(full_file_path_to_video).name
 
 class centipede:
@@ -265,11 +265,10 @@ class centipede:
                 array_leaves = leaves # leaves that refer to array coords
                 leaves = np.array([point[::-1] for point in leaves])
                 leaves = leaves + tl_corner
-            legs.extend(self.match_leg_points(branches, array_leaves, leaves, skeleton, tl_corner))
-            
 
-            branches_list.extend(branches)
-            leaves_list.extend(leaves)
+                legs.extend(self.match_leg_points(branches, array_leaves, leaves, skeleton, tl_corner))
+                branches_list.extend(branches)
+                leaves_list.extend(leaves)
         self.branches = branches_list
         self.leaves = leaves_list
 
@@ -833,8 +832,8 @@ def process_frame(frame):
     min_dim = min(height, width)
     dim_thresh = 350
     scale_factor = 1
-    if min_dim < dim_thresh:
-        scale_factor = 2
+    # if min_dim < dim_thresh:
+    #     scale_factor = 2
     big_frame = cv2.resize(frame, None, fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_CUBIC)
 
     gray = cv2.cvtColor(big_frame, cv2.COLOR_BGR2GRAY)

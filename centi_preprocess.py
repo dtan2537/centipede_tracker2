@@ -171,10 +171,10 @@ max_y = 0
 
 body_ant_ratio = float(dict_values["body ant ratio"])
 global_min_thresh = int(dict_values["min thresh"])
-top_weight = int(dict_values["top weight"])
-bottom_weight = int(dict_values["bottom weight"])
-left_weight = int(dict_values["left weight"])
-right_weight = int(dict_values["right weight"])
+top_weight = float(dict_values["top weight"])
+bottom_weight = float(dict_values["bottom weight"])
+left_weight = float(dict_values["left weight"])
+right_weight = float(dict_values["right weight"])
 
 mask_vals = (int(dict_values["mask top"]), int(dict_values["mask bottom"]),
             int(dict_values["mask left"]), int(dict_values["mask right"]))
@@ -258,16 +258,27 @@ def preprocess_frame(frame):
 
     # bw = cv2.medianBlur(blur,9)
 
-    ret, thresh = cv2.threshold(blur, 180, 255, cv2.THRESH_BINARY)
+    ret, thresh = cv2.threshold(blur, global_min_thresh, 255, cv2.THRESH_BINARY)
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    midline = max(contours, key=cv2.contourArea)
+    midline = max(contours, key=lambda x: cv2.arcLength(x, True))
+    sorted_contours = sorted(contours, key=cv2.contourArea, reverse=True)
+
+    print(len(contours))
+    cv2.drawContours(frame, [midline], -1, (255, 0, 0), thickness=cv2.FILLED)
+    cv2.imshow("midline", frame)
+
     x, y, w, h = cv2.boundingRect(midline)
+    cv2.imshow("balls mgee", thresh)
+    cv2.waitKey(25)
 
   # Green rectangle
     new_min_x = min(min_x, x)
     new_max_x = max(max_x, x + w)
     new_min_y = min(min_y, y)
     new_max_y = max(max_y, y + h)
+    print(x, y, w, h)
+    print(new_min_x, new_max_x, new_min_y, new_max_y)
+
 
     # for contour in contours:
     #     x, y, w, h = cv2.boundingRect(contour)
@@ -471,6 +482,7 @@ while (cap.isOpened()):
         break
     min_x, max_x, min_y, max_y = preprocess_frame(frame) # get the relevant video section only
 
+print(min_x, max_x, min_y, max_y)
 
 cap.release()
 
@@ -498,9 +510,11 @@ while (cap_real.isOpened()):
     ret, frame = cap_real.read()
     if ret == False:
         break
+    # cv2.imshow("Original Frame", frame)
     cropped_frame = crop_frame(frame, new_vid_coords)
+    cv2.imshow("Cropped Frame", cropped_frame)
     new_frame = process_frame(cropped_frame)
-    cv2.imshow("Cropped Frame", new_frame)
+    # cv2.imshow("Cropped Frame", new_frame)
     video.write(new_frame)
 
     if cv2.waitKey(25) & 0xFF == ord('q'):

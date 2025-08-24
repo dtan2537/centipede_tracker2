@@ -1,15 +1,15 @@
 {
     "polyn_t1_d10.mp4": {
         "body ant ratio": "0.1",
-        "min thresh": "100",
+        "min thresh": "50",
         "top weight": "2",
         "bottom weight": "2",
         "left weight": "2",
         "right weight": "2",
-        "mask top": "50",
-        "mask bottom": "20",
-        "mask left": "70",
-        "mask right": "80"
+        "mask top": "100",
+        "mask bottom": "100",
+        "mask left": "100",
+        "mask right": "100"
     },
     "subB_t3_d4.mp4": {
         "body ant ratio": "0.1",
@@ -22,5 +22,77 @@
         "mask bottom": "20",
         "mask left": "70",
         "mask right": "40"
+    },
+    "subN_t1_d8(2of3).mp4": {
+        "body ant ratio": "0.1",
+        "min thresh": "120",
+        "top weight": "1",
+        "bottom weight": "1",
+        "left weight": "1",
+        "right weight": "1",
+        "mask top": "10",
+        "mask bottom": "20",
+        "mask left": "70",
+        "mask right": "40"
+    },
+    "polyP_t1_d9(2of3).mp4": {
+        "body ant ratio": "0.1",
+        "min thresh": "120",
+        "top weight": "1",
+        "bottom weight": "1",
+        "left weight": "1",
+        "right weight": "1",
+        "mask top": "10",
+        "mask bottom": "20",
+        "mask left": "70",
+        "mask right": "40"
+    },
+    "polyP_t2_d5(2of3).mp4": {
+        "body ant ratio": "0.1",
+        "min thresh": "100",
+        "top weight": "1",
+        "bottom weight": "1",
+        "left weight": "1",
+        "right weight": "1",
+        "mask top": "10",
+        "mask bottom": "20",
+        "mask left": "70",
+        "mask right": "40"
+    },
+    "subB_t5_d4.mp4": {
+        "body ant ratio": "0.1",
+        "min thresh": "120",
+        "top weight": "1",
+        "bottom weight": "1",
+        "left weight": "1",
+        "right weight": "1",
+        "mask top": "10",
+        "mask bottom": "20",
+        "mask left": "70",
+        "mask right": "40"
+    },
+    "polym_t1_d5.mp4": {
+        "body ant ratio": "0.1",
+        "min thresh": "120",
+        "top weight": "1",
+        "bottom weight": "1",
+        "left weight": "1",
+        "right weight": "1",
+        "mask top": "10",
+        "mask bottom": "20",
+        "mask left": "70",
+        "mask right": "40"
+    },
+    "2025_06_18_15_01_27_Top_subA2.avi": {
+        "body ant ratio": "0.1",
+        "min thresh": "180",
+        "top weight": "0.1",
+        "bottom weight": "0.1",
+        "left weight": "0.1",
+        "right weight": "0.1",
+        "mask top": "0",
+        "mask bottom": "0",
+        "mask left": "450",
+        "mask right": "0"
     }
 }

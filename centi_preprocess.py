@@ -65,15 +65,6 @@ class MainWindow(QMainWindow):
         browse_layout.addWidget(browse_btn)
 
 
-        # body_ant_ratio = 0.1
-        # global_min_thresh = 120
-        # top_weight = 1
-        # bottom_weight = 1
-        # left_weight = 1
-        # right_weight = 1
-
-        # mask_vals = (10, 20, 70, 40)
-
         update_vals_btn = QPushButton("Apply")
         update_vals_btn.clicked.connect(self.update_values_json)
 
@@ -85,7 +76,6 @@ class MainWindow(QMainWindow):
         param_edit_list = []
         for param in self.parameter_list:
             param_edit = QLineEdit()
-            # param_edit.setPlaceholderText(param)
             param_edit_list.append(param_edit)
             form_layout.addRow(param, param_edit)
         form_layout.addWidget(update_vals_btn)
@@ -179,15 +169,7 @@ right_weight = float(dict_values["right weight"])
 mask_vals = (int(dict_values["mask top"]), int(dict_values["mask bottom"]),
             int(dict_values["mask left"]), int(dict_values["mask right"]))
 
-# default values
-# body_ant_ratio = 0.1
-# global_min_thresh = 120
-# top_weight = 1
-# bottom_weight = 1
-# left_weight = 1
-# right_weight = 1
 
-# mask_vals = (10, 20, 70, 40)
 
 endpoint1, endpoint2 = None, None
 start_endpoint1,start_endpoint2 = None, None
@@ -195,14 +177,11 @@ endpoint1_dist = 0
 endpoint2_dist = 0
 
 
-# filename = "polym_t4_d6.mp4"
-# filename = "subB_t3_d4.mp4"
-
 
 full_path = window.filepath
 filename = Path(full_path).name
 
-def mask_frame(frame, mask_vals):
+def mask_frame(frame, mask_vals, val=0):
     """Mask components from window of video
 
     Args:
@@ -214,10 +193,10 @@ def mask_frame(frame, mask_vals):
     """
     top, bottom, left, right = mask_vals
     height, width = frame.shape
-    frame[:top, :] = 0             # Top region
-    frame[height - bottom:, :] = 0  # Bottom region
-    frame[:, :left] = 0            # Left region
-    frame[:, width - right:] = 0   # Right region
+    frame[:top, :] = val            # Top region
+    frame[height - bottom:, :] = val  # Bottom region
+    frame[:, :left] = val        # Left region
+    frame[:, width - right:] = val   # Right region
     return frame
 
 def calc_vid_dims(height, width):
@@ -228,19 +207,22 @@ def calc_vid_dims(height, width):
     padding = np.linalg.norm(tl - br) * body_ant_ratio
     # body antennae ratio
     left = int(max(0, min_x - left_weight * padding))
-    # left = int(max(0, min_x - 0.2*padding))
     right = int(min(width, max_x + right_weight * padding))
-    # right = int(min(width, max_x + 0.2 * padding))
     top = int(max(0, min_y - top_weight * padding))
-    # top = int(max(0, min_y - 0.6 * padding))
     bottom = int(min(height, max_y + bottom_weight * padding))
-    # bottom = int(min(height, max_y + 0 * padding))
     return top, bottom, left, right
 
-def crop_frame(frame, coords):
+def crop_frame(frame, coords, mask_vals, val=255):
     """crop the frame to the relevant section
     """
+    top, bottom, left, right = mask_vals
+    height, width, _ = frame.shape
+    frame[:top, :, :] = val            # Top region
+    frame[height - bottom:, :, :] = val  # Bottom region
+    frame[:, :left, :] = val        # Left region
+    frame[:, width - right:, :] = val   # Right region
     top, bottom, left, right = coords
+
     new_frame = frame[top:bottom, left:right, :]
     return new_frame
 
@@ -248,7 +230,6 @@ def preprocess_frame(frame):
     """Preprocess the frame to find the midline of the centipede and find the relevant video section."""
     # top, bottom, left, right
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    # blur = cv2.GaussianBlur(gray, (3,3), 0)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 1))
 
     # adaptive thresholding to use different threshold 
@@ -256,9 +237,7 @@ def preprocess_frame(frame):
     blur = ~gray
     blur = mask_frame(blur, mask_vals)
 
-    # bw = cv2.medianBlur(blur,9)
-
-    ret, thresh = cv2.threshold(blur, global_min_thresh, 255, cv2.THRESH_BINARY)
+    ret, thresh = cv2.threshold(blur, 180, 255, cv2.THRESH_BINARY)
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     midline = max(contours, key=lambda x: cv2.arcLength(x, True))
     sorted_contours = sorted(contours, key=cv2.contourArea, reverse=True)
@@ -268,7 +247,6 @@ def preprocess_frame(frame):
     cv2.imshow("midline", frame)
 
     x, y, w, h = cv2.boundingRect(midline)
-    cv2.imshow("balls mgee", thresh)
     cv2.waitKey(25)
 
   # Green rectangle
@@ -279,27 +257,19 @@ def preprocess_frame(frame):
     print(x, y, w, h)
     print(new_min_x, new_max_x, new_min_y, new_max_y)
 
-
-    # for contour in contours:
-    #     x, y, w, h = cv2.boundingRect(contour)
-    #     cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-    # return frame, thresh, (new_min_x, new_max_x, new_min_y, new_max_y)
     return (new_min_x, new_max_x, new_min_y, new_max_y)
 
 def process_frame(frame):
     """Process the frame to leave only legs and midline of the centipede."""
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    # blur = cv2.GaussianBlur(gray, (3,3), 0)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
-    midline_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (17, 17))
+    midline_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (11, 11))
     small_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
 
     # adaptive thresholding to use different threshold 
     # values on different regions of the frame.
     blur = ~gray
 
-    # blur = cv2.medianBlur(blur,1)
 
     ret, thresh = cv2.threshold(blur, global_min_thresh, 255, cv2.THRESH_BINARY)
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
@@ -307,37 +277,22 @@ def process_frame(frame):
     contours = [contour for i, contour in enumerate(contours) if i != largest_contour_index]
     cv2.drawContours(thresh, contours, -1, 0, thickness=cv2.FILLED)
 
-    # thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, small_kernel)
-    # thresh = cv2.medianBlur(thresh, 1)
-    # eroded = cv2.erode(thresh, kernel, iterations=1)
-    # dilated = 
+    cv2.imwrite("frame.png", thresh)
+
     midline = cv2.erode(thresh, midline_kernel, iterations=1)
 
 
     opened = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
     opened = cv2.dilate(opened, small_kernel, iterations=1)
-
-    # contours, _ = cv2.findContours(eroded, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    # cheeto = max(contours, key=cv2.contourArea)
-    # x, y, w, h = cv2.boundingRect(cheeto)
-    # print(x, y, w, h)
-
-    # cheeto_mask = np.full(gray.shape, 0, dtype=np.uint8)
-    # cv2.drawContours(cheeto_mask, cheeto, -1, (255), thickness=cv2.FILLED)
     legs_only_frame = thresh & ~opened
 
-    # midline = midline > 0
-    # midline = skeletonize(midline)
-    # midline = (midline * 255).astype(np.uint8)
+
     midline = cv2.GaussianBlur(midline, (27, 27), 0)
-    ret, midline = cv2.threshold(midline, 0, 255, cv2.THRESH_BINARY)
     binary_bool = midline > 0
     skeleton = skeletonize(binary_bool)
     skeleton = (skeleton * 255).astype(np.uint8)
     
     midline_contour, _ = cv2.findContours(skeleton, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    # midline_contour = np.array(midline_contour)
-    # print(midline_contour.shape)
 
     if len(midline_contour) == 0:
         raise Exception("Parameters are not valid for this video. Please adjust the parameters in the UI.")
@@ -348,15 +303,6 @@ def process_frame(frame):
 
     midline_and_legs = legs_only_frame | skeleton
     white_frame = ~midline_and_legs
-
-    # binary_bool = midline_and_legs > 0
-    # skeleton = skeletonize(binary_bool)
-
-    # skeleton = (skeleton * 255).astype(np.uint8)
-    # print(skeleton.shape)
-
-    # skeleton = skeleton & ~midline
-    # return skeleton
 
     return white_frame
 
@@ -482,7 +428,7 @@ while (cap.isOpened()):
         break
     min_x, max_x, min_y, max_y = preprocess_frame(frame) # get the relevant video section only
 
-print(min_x, max_x, min_y, max_y)
+# print(min_x, max_x, min_y, max_y)
 
 cap.release()
 
@@ -511,8 +457,8 @@ while (cap_real.isOpened()):
     if ret == False:
         break
     # cv2.imshow("Original Frame", frame)
-    cropped_frame = crop_frame(frame, new_vid_coords)
-    cv2.imshow("Cropped Frame", cropped_frame)
+    cropped_frame = crop_frame(frame, new_vid_coords, mask_vals)
+    # cv2.imshow("Cropped Frame", cropped_frame)
     new_frame = process_frame(cropped_frame)
     # cv2.imshow("Cropped Frame", new_frame)
     video.write(new_frame)
@@ -531,6 +477,3 @@ cv2.destroyAllWindows()
 
 head = determine_head()
 update_head_json(head)
-
-
-

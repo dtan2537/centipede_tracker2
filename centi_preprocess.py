@@ -145,335 +145,317 @@ class MainWindow(QMainWindow):
         self.close()
 
 
-set_directory_tree()
-app = QApplication(sys.argv)
-window = MainWindow()
-window.show()
-app.exec()
+class ProcessFrame():
 
-dict_values = window.data
+    def __init__(self, user_params):
+        self.body_ant_ratio = float(user_params["body ant ratio"])
+        self.global_min_thresh = int(user_params["min thresh"])
+        self.top_weight = float(user_params["top weight"])
+        self.bottom_weight = float(user_params["bottom weight"])
+        self.left_weight = float(user_params["left weight"])
+        self.right_weight = float(user_params["right weight"])
+        self.mask_vals = (int(user_params["mask top"]), int(user_params["mask bottom"]),
+                            int(user_params["mask left"]), int(user_params["mask right"]))
+        self.br = [0, 0]
+        self.tl = [1000000, 1000000]
+        self.body_end1 = None
+        self.body_end2 = None
+        self.first_frame_bodyend1 = None
+        self.first_frame_bodyend2 = None
+        self.body_end1_dist = 0
+        self.body_end2_dist = 0
 
-min_x = float('inf')
-max_x = 0
-min_y = float('inf')
-max_y = 0
-
-
-body_ant_ratio = float(dict_values["body ant ratio"])
-global_min_thresh = int(dict_values["min thresh"])
-top_weight = float(dict_values["top weight"])
-bottom_weight = float(dict_values["bottom weight"])
-left_weight = float(dict_values["left weight"])
-right_weight = float(dict_values["right weight"])
-
-mask_vals = (int(dict_values["mask top"]), int(dict_values["mask bottom"]),
-            int(dict_values["mask left"]), int(dict_values["mask right"]))
-
-
-
-endpoint1, endpoint2 = None, None
-start_endpoint1,start_endpoint2 = None, None
-endpoint1_dist = 0
-endpoint2_dist = 0
+        self.full_path = window.filepath
+        self.filename = Path(self.full_path).name
+        self.file_title = self.filename.split(".")[0]
+        self.mask_poly = None
 
 
+    def poly_mask_frame(self, frame, val=0):
+        """Mask components from window of video
 
-full_path = window.filepath
-filename = Path(full_path).name
+        Args:
+            frame (_type_): frame to be masked
+            mask_vals (_type_): how much is masked from each side of the frame
 
-def mask_frame(frame, mask_vals, val=0):
-    """Mask components from window of video
-
-    Args:
-        frame (_type_): frame to be masked
-        mask_vals (_type_): how much is masked from each side of the frame
-
-    Returns:
-        _type_: new frame
-    """
-    top, bottom, left, right = mask_vals
-    height, width = frame.shape
-    frame[:top, :] = val            # Top region
-    frame[height - bottom:, :] = val  # Bottom region
-    frame[:, :left] = val        # Left region
-    frame[:, width - right:] = val   # Right region
-    return frame
-
-def calc_vid_dims(height, width):
-    """calculate the dimensions of the relevant video section
-    """
-    tl = np.array((min_x, min_y)) #top left
-    br = np.array((max_x, max_y)) # bottom right
-    padding = np.linalg.norm(tl - br) * body_ant_ratio
-    # body antennae ratio
-    left = int(max(0, min_x - left_weight * padding))
-    right = int(min(width, max_x + right_weight * padding))
-    top = int(max(0, min_y - top_weight * padding))
-    bottom = int(min(height, max_y + bottom_weight * padding))
-    return top, bottom, left, right
-
-def crop_frame(frame, coords, mask_vals, val=255):
-    """crop the frame to the relevant section
-    """
-    top, bottom, left, right = mask_vals
-    height, width, _ = frame.shape
-    frame[:top, :, :] = val            # Top region
-    frame[height - bottom:, :, :] = val  # Bottom region
-    frame[:, :left, :] = val        # Left region
-    frame[:, width - right:, :] = val   # Right region
-    top, bottom, left, right = coords
-
-    new_frame = frame[top:bottom, left:right, :]
-    return new_frame
-
-def preprocess_frame(frame):
-    """Preprocess the frame to find the midline of the centipede and find the relevant video section."""
-    # top, bottom, left, right
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 1))
-
-    # adaptive thresholding to use different threshold 
-    # values on different regions of the frame.
-    blur = ~gray
-    blur = mask_frame(blur, mask_vals)
-
-    ret, thresh = cv2.threshold(blur, 180, 255, cv2.THRESH_BINARY)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    midline = max(contours, key=lambda x: cv2.arcLength(x, True))
-    sorted_contours = sorted(contours, key=cv2.contourArea, reverse=True)
-
-    print(len(contours))
-    cv2.drawContours(frame, [midline], -1, (255, 0, 0), thickness=cv2.FILLED)
-    cv2.imshow("midline", frame)
-
-    x, y, w, h = cv2.boundingRect(midline)
-    cv2.waitKey(25)
-
-  # Green rectangle
-    new_min_x = min(min_x, x)
-    new_max_x = max(max_x, x + w)
-    new_min_y = min(min_y, y)
-    new_max_y = max(max_y, y + h)
-    print(x, y, w, h)
-    print(new_min_x, new_max_x, new_min_y, new_max_y)
-
-    return (new_min_x, new_max_x, new_min_y, new_max_y)
-
-def process_frame(frame):
-    """Process the frame to leave only legs and midline of the centipede."""
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
-    midline_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (11, 11))
-    small_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-
-    # adaptive thresholding to use different threshold 
-    # values on different regions of the frame.
-    blur = ~gray
+        Returns:
+            _type_: new frame
+        """
+        polygon = np.array([self.mask_poly], dtype=np.int32)
+        mask = np.zeros(frame.shape[:2], dtype=np.uint8) * 255
+        cv2.fillPoly(mask, polygon, 255)
+        masked = cv2.bitwise_and(frame, frame, mask=mask)
+        return masked
 
 
-    ret, thresh = cv2.threshold(blur, global_min_thresh, 255, cv2.THRESH_BINARY)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    largest_contour_index = max(range(len(contours)), key=lambda i: cv2.contourArea(contours[i]))
-    contours = [contour for i, contour in enumerate(contours) if i != largest_contour_index]
-    cv2.drawContours(thresh, contours, -1, 0, thickness=cv2.FILLED)
-
-    cv2.imwrite("frame.png", thresh)
-
-    midline = cv2.erode(thresh, midline_kernel, iterations=1)
-
-
-    opened = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
-    opened = cv2.dilate(opened, small_kernel, iterations=1)
-    legs_only_frame = thresh & ~opened
-
-
-    midline = cv2.GaussianBlur(midline, (27, 27), 0)
-    binary_bool = midline > 0
-    skeleton = skeletonize(binary_bool)
-    skeleton = (skeleton * 255).astype(np.uint8)
-    
-    midline_contour, _ = cv2.findContours(skeleton, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-
-    if len(midline_contour) == 0:
-        raise Exception("Parameters are not valid for this video. Please adjust the parameters in the UI.")
-    else:
-        midline_contour = midline_contour[0]
-        find_head(midline_contour)
-
-
-    midline_and_legs = legs_only_frame | skeleton
-    white_frame = ~midline_and_legs
-
-    return white_frame
-
-def calculate_angle(A, B, C):
-    # Convert points to NumPy arrays
-    A, B, C = np.array(A), np.array(B), np.array(C)
-
-    # Compute vectors BA and BC
-    BA = A - B
-    BC = C - B
-
-    # Compute dot product and magnitudes
-    dot_product = np.dot(BA, BC)
-    mag_BA = np.linalg.norm(BA)
-    mag_BC = np.linalg.norm(BC)
-
-    # Avoid division by zero
-    if mag_BA == 0 or mag_BC == 0:
-        return 0  # Undefined angle
-
-    # Compute angle in radians and convert to degrees
-    cos_theta = np.clip(dot_product / (mag_BA * mag_BC), -1.0, 1.0)
-    angle_rad = np.arccos(cos_theta)
-    angle_deg = np.degrees(angle_rad)
-
-    # angle_rad = np.arctan2(np.linalg.norm(np.cross(BA, BC)), np.dot(BA, BC))
-    # angle_deg = np.degrees(angle_rad)
-    return angle_deg 
-
-def find_head(mid_skele):
-    """Track the head of the centipede by determinging the vertex that is more exploratory"""
-    global endpoint1, endpoint2, endpoint1_dist, endpoint2_dist, start_endpoint1, start_endpoint2
-    epsilon = 0.003 * cv2.arcLength(mid_skele, True)
-    midline_polygon = cv2.approxPolyDP(mid_skele, epsilon, True)
-
-    polygon_squeezed = midline_polygon[:, 0, :]
-
-    min1_angle = 360
-    min2_angle = 360
-    min_vertex = None
-    min_vertex2 = None
-    min_vertex_idx = 0
-    min_vertex2_idx = 0
-
-    for i in range(len(polygon_squeezed)): 
-        # Get the current vertex and its two neighboring vertices
-        pt1 = polygon_squeezed[i - 1]  # Previous point
-        pt2 = polygon_squeezed[i]      # Current point
-        pt3 = polygon_squeezed[(i + 1) % len(polygon_squeezed)]  # Next point
-        
-        # Calculate the angle at the current vertex (assuming calculate_angle is adapted to PyTorch)
-        angle = calculate_angle(pt1.tolist(), pt2.tolist(), pt3.tolist())
-
-        # Update minimum angle and associated vertex if a new minimum is found
-        if angle < min1_angle:
-            min1_angle, min2_angle = angle, min1_angle
-            min_vertex2, min_vertex2_idx = min_vertex, min_vertex_idx
-            min_vertex, min_vertex_idx = pt2, i
-        elif angle < min2_angle:
-            min2_angle = angle
-            min_vertex2, min_vertex2_idx = pt2, i
-        
-    if endpoint1 is None or endpoint2 is None:
-        endpoint1 = min_vertex
-        endpoint2 = min_vertex2
-        start_endpoint1 = endpoint1
-        start_endpoint2 = endpoint2
-    else:
-        e1_m1= np.linalg.norm(endpoint1 - min_vertex)
-        e1_m2= np.linalg.norm(endpoint1 - min_vertex2)
-        e2_m1= np.linalg.norm(endpoint2 - min_vertex)
-        e2_m2= np.linalg.norm(endpoint2 - min_vertex2)
-        if e1_m1 < e1_m2:
-            endpoint1_dist += e1_m1
-            endpoint2_dist += e2_m2
-
-            endpoint1 = min_vertex
-            endpoint2 = min_vertex2
+    def pad_mask_frame(self, frame, preproc=True):
+        """crop the frame to the relevant section
+        """
+        if len(frame.shape) > 2:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        top, bottom, left, right = self.mask_vals
+        height, width = frame.shape[:2]
+        mask = np.ones(frame.shape[:2], dtype=np.uint8) * 255
+        mask[:top, :] = 0            # Top region
+        mask[height - bottom:, :] = 0  # Bottom region
+        mask[:, :left] = 0        # Left region
+        mask[:, width - right:] = 0   # Right region
+        if preproc:
+            frame[mask==0] = 0
         else:
-            endpoint1_dist += e1_m2
-            endpoint2_dist += e2_m1
+            frame[mask==0] = 255
+        masked = frame
 
-            endpoint1 = min_vertex2
-            endpoint2 = min_vertex
+        if not preproc:
+            tl_x, tl_y = self.tl
+            br_x, br_y = self.br
+            masked = masked[tl_y:br_y, tl_x:br_x]
+        return masked
 
-def determine_head():
-    if endpoint1_dist > endpoint2_dist:
-        return endpoint1
-    return endpoint2
+    def update_win_size(self):
+        padding = int(self.body_length * self.body_ant_ratio)
+        tl_x = max(self.tl[0] - int(self.left_weight * padding), 0)
+        tl_y = max(self.tl[1] - int(self.top_weight * padding), 0)
+        br_x = min(self.br[0] + int(self.right_weight * padding),width)
+        br_y = min(self.br[1] + int(self.bottom_weight * padding), height)
+        self.tl = (tl_x, tl_y)
+        self.br = (br_x, br_y)
 
-def update_head_json(head):
-    file = "head.json"
-    data = {}
-    try:
-        with open(file, 'r') as json_file:
-            data = json.load(json_file)
-    except:
-        pass
-    finally:
-        data[file_title] = head.tolist()
-        with open(file, 'w') as json_file:
-            json.dump(data, json_file, indent=4)
+    def preprocess_frame(self, frame):
+        """Preprocess the frame to find the midline of the centipede and find the relevant video section."""
+        # top, bottom, left, right
+        gray = frame
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 1))
 
+        # adaptive thresholding to use different threshold 
+        # values on different regions of the frame.
+        inverted = ~gray
+        masked = self.pad_mask_frame(inverted)
+        
+        cv2.imshow("masked", masked)
 
-# get path to video and extract the file title
-file_path = full_path
-file_title = filename.split(".")[0]
+        ret, thresh = cv2.threshold(masked, 180, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        midline = max(contours, key=lambda x: cv2.arcLength(x, True))
 
+        x, y, w, h = cv2.boundingRect(midline)
+        self.body_length = int(cv2.arcLength(midline, True)/2)
 
-cap = cv2.VideoCapture(file_path)
+        self.tl = (min(x, self.tl[0]), min(y, self.tl[1]))
+        self.br = (max(x + w, self.br[0]), max(y + h, self.br[1]))
+  
 
-# ret, first_frame = cap.read()
+    def process_frame(self, frame):
+        """Process the frame to leave only legs and midline of the centipede."""
+        # gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-# get video properties
-if cap.isOpened():
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-    width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+        gray = frame
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
+        midline_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (11, 11))
+        small_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
 
-while (cap.isOpened()):
-    ret, frame = cap.read()
-    if ret == False:
-        break
-    min_x, max_x, min_y, max_y = preprocess_frame(frame) # get the relevant video section only
-
-# print(min_x, max_x, min_y, max_y)
-
-cap.release()
-
-
-cap_real = cv2.VideoCapture(file_path)
-
+        # adaptive thresholding to use different threshold 
+        # values on different regions of the frame.
+        blur = ~gray
 
 
-new_vid_coords = calc_vid_dims(height, width)
-top, bottom, left, right = new_vid_coords
-# print(new_vid_coords)
-new_vid_width = right - left
-new_vid_height = bottom - top
-# print(new_vid_height, new_vid_width)
+        ret, thresh = cv2.threshold(blur, self.global_min_thresh, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        largest_contour_index = max(range(len(contours)), key=lambda i: cv2.contourArea(contours[i]))
+        contours = [contour for i, contour in enumerate(contours) if i != largest_contour_index]
+        cv2.drawContours(thresh, contours, -1, 0, thickness=cv2.FILLED)
 
-video_name = f"processed_videos/{file_title}_labelled.mp4"
-fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-video = cv2.VideoWriter(video_name, fourcc, fps, (new_vid_width, new_vid_height), isColor=False) 
+        midline = cv2.erode(thresh, midline_kernel, iterations=1)
 
-while (cap_real.isOpened()):
 
-    # Capture frame-by-frame
-    # cv2.imshow("Processed", processed_frame)
-    # cv2.imshow("color", color_frame)
-    ret, frame = cap_real.read()
-    if ret == False:
-        break
-    # cv2.imshow("Original Frame", frame)
-    cropped_frame = crop_frame(frame, new_vid_coords, mask_vals)
-    # cv2.imshow("Cropped Frame", cropped_frame)
-    new_frame = process_frame(cropped_frame)
-    # cv2.imshow("Cropped Frame", new_frame)
-    video.write(new_frame)
+        opened = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
+        opened = cv2.dilate(opened, small_kernel, iterations=1)
+        legs_only_frame = thresh & ~opened
 
-    if cv2.waitKey(25) & 0xFF == ord('q'):
-        break
-    # cv2.waitKey(0)
 
-# release the vide
-# o capture object
-cap_real.release()
-video.release()
-# video.release()
-# Closes all the windows currently opened.
-cv2.destroyAllWindows()
+        midline = cv2.GaussianBlur(midline, (27, 27), 0)
+        binary_bool = midline > 0
+        skeleton = skeletonize(binary_bool)
+        skeleton = (skeleton * 255).astype(np.uint8)
+        
+        midline_contour, _ = cv2.findContours(skeleton, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 
-head = determine_head()
-update_head_json(head)
+        if len(midline_contour) == 0:
+            raise Exception("Parameters are not valid for this video. Please adjust the parameters in the UI.")
+        else:
+            midline_contour = midline_contour[0]
+            self.find_head(midline_contour)
+
+
+        midline_and_legs = legs_only_frame | skeleton
+        white_frame = ~midline_and_legs
+
+        return white_frame
+    
+    def embed_frame(self, frame, shape):
+        """Embed the processed frame back into the original frame size."""
+        embedded = np.ones(shape[:2], dtype=np.uint8) * 255
+        embedded[self.tl[1]:self.br[1], self.tl[0]:self.br[0]] = frame
+        return embedded
+
+    def calculate_angle(self, A, B, C):
+        # Convert points to NumPy arrays
+        A, B, C = np.array(A), np.array(B), np.array(C)
+
+        # Compute vectors BA and BC
+        BA = A - B
+        BC = C - B
+
+        # Compute dot product and magnitudes
+        dot_product = np.dot(BA, BC)
+        mag_BA = np.linalg.norm(BA)
+        mag_BC = np.linalg.norm(BC)
+
+        # Avoid division by zero
+        if mag_BA == 0 or mag_BC == 0:
+            return 0  # Undefined angle
+
+        # Compute angle in radians and convert to degrees
+        cos_theta = np.clip(dot_product / (mag_BA * mag_BC), -1.0, 1.0)
+        angle_rad = np.arccos(cos_theta)
+        angle_deg = np.degrees(angle_rad)
+
+        return angle_deg 
+
+    def find_head(self, mid_skele):
+        """Track the head of the centipede by determinging the vertex that is more exploratory"""
+        epsilon = 0.003 * cv2.arcLength(mid_skele, True)
+        midline_polygon = cv2.approxPolyDP(mid_skele, epsilon, True)
+        midline_polygon += np.array(self.tl) #adjust for offset from optimization
+        polygon_squeezed = midline_polygon[:, 0, :]
+
+        min1_angle = 360
+        min2_angle = 360
+        min_vertex = None
+        min_vertex2 = None
+        min_vertex_idx = 0
+        min_vertex2_idx = 0
+
+        for i in range(len(polygon_squeezed)): 
+            # Get the current vertex and its two neighboring vertices
+            pt1 = polygon_squeezed[i - 1]  # Previous point
+            pt2 = polygon_squeezed[i]      # Current point
+            pt3 = polygon_squeezed[(i + 1) % len(polygon_squeezed)]  # Next point
+            
+            # Calculate the angle at the current vertex (assuming calculate_angle is adapted to PyTorch)
+            angle = self.calculate_angle(pt1.tolist(), pt2.tolist(), pt3.tolist())
+
+            # Update minimum angle and associated vertex if a new minimum is found
+            if angle < min1_angle:
+                min1_angle, min2_angle = angle, min1_angle
+                min_vertex2, min_vertex2_idx = min_vertex, min_vertex_idx
+                min_vertex, min_vertex_idx = pt2, i
+            elif angle < min2_angle:
+                min2_angle = angle
+                min_vertex2, min_vertex2_idx = pt2, i
+            
+        if self.body_end1 is None or self.body_end2 is None:
+            self.body_end1 = min_vertex
+            self.body_end2 = min_vertex2
+            self.first_frame_bodyend1 = self.body_end1
+            self.first_frame_bodyend2 = self.body_end2
+        else:
+            e1_m1= np.linalg.norm(self.body_end1 - min_vertex)
+            e1_m2= np.linalg.norm(self.body_end1 - min_vertex2)
+            e2_m1= np.linalg.norm(self.body_end2 - min_vertex)
+            e2_m2= np.linalg.norm(self.body_end2 - min_vertex2)
+            if e1_m1 < e1_m2:
+                self.body_end1_dist += e1_m1
+                self.body_end2_dist += e2_m2
+
+                self.body_end1 = min_vertex
+                self.body_end2 = min_vertex2
+            else:
+                self.body_end1_dist += e1_m2
+                self.body_end2_dist += e2_m1
+
+                self.body_end1 = min_vertex2
+                self.body_end2 = min_vertex
+
+    def determine_head(self):
+        #TODO
+        if self.body_end1_dist > self.body_end2_dist:
+            return self.body_end1
+        return self.body_end2
+
+    def update_head_json(self, head):
+        file = "head.json"
+        data = {}
+        try:
+            with open(file, 'r') as json_file:
+                data = json.load(json_file)
+        except:
+            pass
+        finally:
+            data[self.file_title] = head.tolist()
+            with open(file, 'w') as json_file:
+                json.dump(data, json_file, indent=4)
+
+
+
+if __name__ == "__main__":
+    set_directory_tree()
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    app.exec()
+
+    dict_values = window.data
+
+    proc_frame = ProcessFrame(dict_values)
+
+    cap = cv2.VideoCapture(proc_frame.full_path)
+    # get video properties
+    if cap.isOpened():
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+
+    print("Preprocessing video...")
+    while (cap.isOpened()):
+        ret, frame = cap.read()
+        if ret == False:
+            break
+        proc_frame.preprocess_frame(frame) # get the relevant video section only
+        cv2.waitKey(25)
+
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 0) # reset video to first frame
+    proc_frame.update_win_size()
+
+    video_name = f"processed_videos/{proc_frame.file_title}_labelled.mp4"
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    video = cv2.VideoWriter(video_name, fourcc, fps, (width, height), isColor=False) 
+    print("Processing video...")
+    while (cap.isOpened()):
+
+        # Capture frame-by-frame
+
+        ret, frame = cap.read()
+        if ret == False:
+            break
+        masked_frame = proc_frame.pad_mask_frame(frame, preproc=False)
+        new_frame = proc_frame.process_frame(masked_frame)
+        embedded_frame = proc_frame.embed_frame(new_frame, frame.shape)
+        cv2.imshow("Processed", embedded_frame)
+
+        video.write(embedded_frame)
+
+        if cv2.waitKey(25) & 0xFF == ord('q'):
+            break
+
+    # release the vide
+    # o capture object
+    cap.release()
+    video.release()
+    # Closes all the windows currently opened.
+    cv2.destroyAllWindows()
+
+    head = proc_frame.determine_head()
+    proc_frame.update_head_json(head)
+
+    print("Finished Processing")

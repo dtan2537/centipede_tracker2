@@ -11,7 +11,7 @@ from pathlib import Path
 import time
 
 # 
-full_file_path_to_video = r"C:\Users\data\Documents\gatech assignments\CrabLab\centipede_tracker2\processed_videos\2025_06_18_15_01_27_Top_subA2_labelled.mp4"
+full_file_path_to_video = r"C:\Users\data\Documents\gatech assignments\CrabLab\centipede_tracker2\processed_videos\polym_t1_d6_labelled.mp4"
 filename = Path(full_file_path_to_video).name
 
 class centipede:
@@ -40,7 +40,7 @@ class centipede:
         self.csv_right_leg_angles = [list(range(int((self.legs - 2 + self.ant)/2)))]
         self.temp_leg_angles = [list(range(self.legs - 2 + self.ant))]
         self.csv_segment_angles = [list(range(self.segments - 1))]
-        self.csv_antennae_angles = ["left", "right"]
+        self.csv_antennae_angles = [["left", "right"]]
         self.head = None
         self.head_idx = None
         self.head_tracking_csv = []
@@ -699,13 +699,18 @@ class Calculations:
     def angle_between_lines(leg, segment):
         shoulder, foot = leg
         head_facing_segment, tail_facing_segment = segment
+
         leg_vector = np.array(foot) - np.array(shoulder)
         segment_vector = np.array(tail_facing_segment) - np.array(head_facing_segment)
-        dot_product = np.dot(leg_vector, segment_vector)
-        cross_product = np.cross(leg_vector, segment_vector)
-        angle_rad = np.arctan2(np.linalg.norm(cross_product), dot_product)
-        angle_deg = np.degrees(angle_rad)
-        return angle_deg
+
+        if np.allclose(leg_vector, 0) or np.allclose(segment_vector, 0):
+            return np.nan
+
+        dot = np.dot(leg_vector, segment_vector)
+        cross = leg_vector[0]*segment_vector[1] - leg_vector[1]*segment_vector[0]
+
+        angle_rad = np.arctan2(abs(cross), dot)   # or remove abs() for signed angle
+        return np.degrees(angle_rad)
 
     @staticmethod
     def accurate_point_polygon(contour, point):

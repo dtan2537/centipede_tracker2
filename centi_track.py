@@ -11,7 +11,7 @@ from pathlib import Path
 import time
 
 # 
-full_file_path_to_video = r"C:\Users\data\Documents\gatech assignments\CrabLab\centipede_tracker2\processed_videos\polym_t1_d6_labelled.mp4"
+full_file_path_to_video = r"C:\Users\data\Documents\gatech assignments\CrabLab\centipede_tracker2\processed_videos\061025_WallFollowSubE4_top_cropped2_compressed(1)_labelled.mp4"
 filename = Path(full_file_path_to_video).name
 
 class centipede:
@@ -44,6 +44,7 @@ class centipede:
         self.head = None
         self.head_idx = None
         self.head_tracking_csv = []
+        self.antennae_feet_pts = []
 
     
     def update_centipede(self, process_frame, canvas_frame):
@@ -99,6 +100,7 @@ class centipede:
         self.get_antennae_segments()
         self.separate_antennae()
         self.get_antennae_angles()
+        self.get_antennae_points()
 
     def process_midline(self, process_frame):
         """segments legs and body and calculates centipede attributes
@@ -487,10 +489,11 @@ class centipede:
     def get_antennae_segments(self):
         """get the segments of each antennae based on their distance to the midline contour
         """
-        min_dist = float('inf')
-        max_dist = 0
+
         antennae_segments = []
         for antennae_contour in self.antennae_contours:
+            min_dist = float('inf')
+            max_dist = 0
             for point in antennae_contour:
                 point = float(point[0][0]), float(point[0][1])
                 dist = cv2.pointPolygonTest(self.midline_contour, point, True)
@@ -512,6 +515,7 @@ class centipede:
         right_dist = Calculations.calc_dist(shoulder, right_extended_head)
         if right_dist < left_dist:
             self.antennae_segments = self.antennae_segments[::-1]
+            self.antennae_contours = self.antennae_contours[::-1]
 
     def get_antennae_angles(self):
         """get the angles of each of the antennae relative to the closest body segment
@@ -524,6 +528,13 @@ class centipede:
             leg_angle = Calculations.angle_between_lines(leg, closest_segment)
             antennae_angles.append(leg_angle)
         self.csv_antennae_angles.append(antennae_angles)
+
+    def get_antennae_points(self):
+        antennae_feet = []
+        for leg in self.antennae_segments:
+            shoulder, foot = leg
+            antennae_feet.append(np.array(foot).astype(int))
+        self.antennae_feet_pts.append(np.array(antennae_feet))
 
     def find_body_gap_dist(self):
         """find distance between body and legs to later use for separation of right and left legs
@@ -572,6 +583,8 @@ class centipede:
         cv2.drawContours(frame, self.antennae_contours, -1, (255, 255, 0), 2)
         # for point in self.branches:
         #     cv2.circle(frame, point, 3, (0, 0, 255), -1)
+        for point in self.antennae_feet_pts[-1]:
+            cv2.circle(frame, point, 3, (255, 0, 255), -1) #draw antennae feet
         for point in self.leaves:
             cv2.circle(frame, point, 3, (0, 255, 0), -1)
         # for point in self.feet:
@@ -583,8 +596,6 @@ class centipede:
                 cv2.putText(frame, f"{count}r", point2, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
         for count, (point1, point2) in enumerate(self.left_leg_points):
             cv2.putText(frame, f"{count}l", point2, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-
-        
 
     
 
@@ -710,7 +721,7 @@ class Calculations:
         cross = leg_vector[0]*segment_vector[1] - leg_vector[1]*segment_vector[0]
 
         angle_rad = np.arctan2(abs(cross), dot)   # or remove abs() for signed angle
-        return np.degrees(angle_rad)
+        return round(np.degrees(angle_rad), 2)
 
     @staticmethod
     def accurate_point_polygon(contour, point):
@@ -870,15 +881,25 @@ def export_csv(centi):
 
     # export segment angles
     segment_angles = centi.csv_segment_angles
+    segment_angles = [["seg"+str(i) for i in range(len(segment_angles[0]))]] + segment_angles
     Figures.write_csv(segment_angles, "segment_angles")
 
     # export head tracking
     head_tracking = centi.head_tracking_csv
+    head_tracking = [["x", "y"]] + head_tracking
     Figures.write_csv(head_tracking, "head_tracking")
 
     # export antennae angles
     antennae_angles = centi.csv_antennae_angles
+    antennae_angles = [["left", "right"]] + antennae_angles
     Figures.write_csv(antennae_angles, "antennae_angles")
+
+    # export antennae tips
+    antennae_tips = centi.antennae_feet_pts
+    antennae_tips = np.array(antennae_tips)
+    antennae_tips = antennae_tips.reshape(antennae_tips.shape[0], -1)
+    antennae_tips = [["left x", "left y", "right x", "right y"]] + antennae_tips.tolist()
+    Figures.write_csv(antennae_tips, "antennae_tips")
 
 def export_heatmap(centi):
     # export leg angles

@@ -11,7 +11,7 @@ from pathlib import Path
 import time
 
 # 
-full_file_path_to_video = r"C:\Users\data\Documents\gatech assignments\CrabLab\centipede_tracker2\processed_videos\061025_WallFollowSubE4_top_cropped2_compressed(1)_labelled.mp4"
+full_file_path_to_video = r"C:\Users\data\Documents\gatech assignments\CrabLab\centipede_tracker2\processed_videos\subB_t3_d4_labelled.mp4"
 filename = Path(full_file_path_to_video).name
 
 class centipede:
@@ -209,7 +209,7 @@ class centipede:
             A = self.segment_points[i]
             B = self.segment_points[i + 1]
             C = self.segment_points[i + 2]
-            angle = Calculations.calc_angle_three_pts(A, B, C)
+            angle = Calculations.calc_segment_angles(A, B, C)
             segment_angles.append(angle)
         self.csv_segment_angles.append(segment_angles)
 
@@ -474,13 +474,19 @@ class centipede:
         for leg in self.left_leg_points:
             shoulder, foot = leg
             closest_segment, _, _ = Calculations.closest_segment(self.segment_points, shoulder)
-            leg_angle = Calculations.angle_between_lines(leg, closest_segment)
+            leg_angle = Calculations.angle_between_lines(leg, closest_segment, leg_type="left")
             left_leg_angles.append(leg_angle)
+            
+            # print("left leg: ", leg, closest_segment, leg_angle)
+            # draw perp line if necessary
         for leg in self.right_leg_points:
             shoulder, foot = leg
             closest_segment, _, _ = Calculations.closest_segment(self.segment_points, shoulder)
-            leg_angle = Calculations.angle_between_lines(leg, closest_segment)
+            leg_angle = Calculations.angle_between_lines(leg, closest_segment, leg_type="right")
             right_leg_angles.append(leg_angle)
+            # print("right leg: ", leg, closest_segment, leg_angle)
+
+
         self.csv_left_leg_angles.append(left_leg_angles)
         self.csv_right_leg_angles.append(right_leg_angles)
         # print(self.frame_count)
@@ -574,6 +580,10 @@ class centipede:
         for point in self.segment_points[1:]:
             cv2.circle(frame, point, 3, (0, 255, 0), -1)
 
+        # seg_eggs = self.csv_segment_angles[-1]
+        # for count, point in enumerate(self.segment_points[:-2]):
+        #     cv2.putText(frame, f"{seg_eggs[count]}", point, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+
     def draw_legs(self, frame):
         """Draw legs and all the other stuff on the canvas
 
@@ -593,11 +603,34 @@ class centipede:
         for p1, p2 in self.leg_points:
             cv2.line(frame, p1, p2, (0, 150, 150), 2)
         for count, (point1, point2) in enumerate(self.right_leg_points):
-                cv2.putText(frame, f"{count}r", point2, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+            cv2.putText(frame, f"{count}r", point2, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
         for count, (point1, point2) in enumerate(self.left_leg_points):
             cv2.putText(frame, f"{count}l", point2, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
 
-    
+
+        # perpendicular leg lines
+        # for leg in self.right_leg_points:
+        #     shoulder, foot = leg
+        #     shoulder, foot = Calculations.test_perp_line(leg, Calculations.closest_segment(self.segment_points, shoulder)[0], leg_type="right")
+        #     cv2.line(frame, shoulder.astype(int), foot.astype(int), (150, 150, 0), 1)
+
+        # for leg in self.left_leg_points:
+        #     shoulder, foot = leg
+        #     shoulder, foot = Calculations.test_perp_line(leg, Calculations.closest_segment(self.segment_points, shoulder)[0], leg_type="left")
+        #     cv2.line(frame, shoulder.astype(int), foot.astype(int), (150, 150, 0), 1)
+
+
+        # draw leg angles
+        # left_angles = self.csv_left_leg_angles[-1]
+        # for count, (p1, p2) in enumerate(self.left_leg_points):
+        #     angle = left_angles[count]
+        #     cv2.putText(frame, f"{angle}", p2, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+
+        # right_angles = self.csv_right_leg_angles[-1]
+        # for count, (p1, p2) in enumerate(self.right_leg_points):
+        #     angle = right_angles[count]
+        #     cv2.putText(frame, f"{angle}", p2, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+
 
 class Calculations:
 
@@ -620,6 +653,39 @@ class Calculations:
 
         return angle_deg
     
+    @staticmethod
+    def calc_segment_angles(A, B, C):
+        A = np.asarray(A, dtype=float)
+        B = np.asarray(B, dtype=float)
+        C = np.asarray(C, dtype=float)
+
+        v1 = A - B   # vector from B to A
+        v2 = C - B   # vector from B to C
+
+        if np.allclose(v1, 0) or np.allclose(v2, 0):
+            return np.nan
+
+        # optionally invert y for image coordinates (so sign matches visual orientation)
+        v1 = v1 * np.array([1.0, -1.0])
+        v2 = v2 * np.array([1.0, -1.0])
+
+        # normalize (not strictly necessary for atan2 but numerically stable)
+        v1 = v1 / np.linalg.norm(v1)
+        v2 = v2 / np.linalg.norm(v2)
+
+        # 2D cross product scalar and dot product
+        cross = v2[0]*v1[1] - v2[1]*v1[0]   # cross(v2, v1)
+        dot   = np.dot(v2, v1)
+
+        s_deg = np.degrees(np.arctan2(cross, dot))  # signed angle from v2 -> v1 in (-180,180]
+
+        # Map s_deg so that straight (s_deg ≈ ±180) -> 0, small deviations -> small signed angles
+        angle = s_deg - 180.0
+
+        # wrap to (-180, 180]
+        angle = (angle + 180.0) % 360.0 - 180.0
+
+        return round(angle, 2)
 
     @staticmethod
     def calc_dist(x, y):
@@ -707,7 +773,7 @@ class Calculations:
         return closest_seg, min_dist, closest_point
     
     @staticmethod
-    def angle_between_lines(leg, segment):
+    def angle_between_lines(leg, segment, leg_type="left"):
         shoulder, foot = leg
         head_facing_segment, tail_facing_segment = segment
 
@@ -716,13 +782,50 @@ class Calculations:
 
         if np.allclose(leg_vector, 0) or np.allclose(segment_vector, 0):
             return np.nan
+        
+        leg_vector = leg_vector / np.linalg.norm(leg_vector)
+        segment_vector = segment_vector / np.linalg.norm(segment_vector)
 
-        dot = np.dot(leg_vector, segment_vector)
-        cross = leg_vector[0]*segment_vector[1] - leg_vector[1]*segment_vector[0]
+        if leg_type == "right":
+            perp_vector = np.array([segment_vector[1], -segment_vector[0]])
+        elif leg_type == "left":
+            perp_vector = np.array([-segment_vector[1], segment_vector[0]])
+        # perp_vector /= np.linalg.norm(perp_vector)
 
-        angle_rad = np.arctan2(abs(cross), dot)   # or remove abs() for signed angle
-        return round(np.degrees(angle_rad), 2)
+        dot = np.dot(perp_vector, leg_vector)
+        cross = -(perp_vector[0]*leg_vector[1] - perp_vector[1]*leg_vector[0])
 
+        angle_deg = np.degrees(np.arctan2(cross, dot))
+
+        if leg_type == "left":
+            angle_deg = -angle_deg
+
+        return round(angle_deg, 2)
+    
+    @staticmethod
+    def test_perp_line(leg, segment, leg_type="left"):
+        shoulder, foot = leg
+        head_facing_segment, tail_facing_segment = segment
+
+        leg_length = np.linalg.norm(np.array(foot) - np.array(shoulder))
+
+        leg_vector = np.array(foot) - np.array(shoulder)
+        segment_vector = np.array(tail_facing_segment) - np.array(head_facing_segment)
+
+        if np.allclose(leg_vector, 0) or np.allclose(segment_vector, 0):
+            return np.nan
+        
+        leg_vector = leg_vector / np.linalg.norm(leg_vector)
+        segment_vector = segment_vector / np.linalg.norm(segment_vector)
+
+        if leg_type == "right":
+            perp_vector = np.array([segment_vector[1], -segment_vector[0]])
+        elif leg_type == "left":
+            perp_vector = np.array([-segment_vector[1], segment_vector[0]])
+        
+        perp_foot = np.array(shoulder) + perp_vector * (leg_length)
+
+        return np.array([shoulder, perp_foot.astype(int)])
     @staticmethod
     def accurate_point_polygon(contour, point):
         min_distance = float("inf")
@@ -807,7 +910,9 @@ class Figures:
         y_values = [lst + list(repeat(0, max_val - len(lst))) for lst in y_values]
         y_values = list(zip(*y_values))
         # Create the heatmap
-        plt.imshow(y_values, cmap='viridis', interpolation='nearest', aspect='auto', vmin=0, vmax=180)
+
+        bound = 20 if data_type == "segment_angles" else 60
+        plt.imshow(y_values, cmap='viridis', interpolation='nearest', aspect='auto', vmin=-bound, vmax=bound, origin='lower')
 
         # Add a colorbar to show the scale
         plt.colorbar()
@@ -835,6 +940,7 @@ class Figures:
             # ax.set_xticks([])
             # ax.set_yticks([])
 
+        # plt.gca().invert_yaxis()
         plt.tight_layout()
         plt.savefig(output_dir)
 
@@ -905,16 +1011,18 @@ def export_heatmap(centi):
     # export leg angles
     left_leg_angles = centi.csv_left_leg_angles
     right_leg_angles = centi.csv_right_leg_angles
-    Figures.heatmapping_data(left_leg_angles, "left_leg_angles")
-    Figures.heatmapping_data(right_leg_angles, "right_leg_angles")
+    max_left = 0
+    max_right = 0
+    Figures.heatmapping_data(range(25), left_leg_angles, "left_leg_angles")
+    Figures.heatmapping_data(range(25), right_leg_angles, "right_leg_angles")
 
     # export segment angles
     segment_angles = centi.csv_segment_angles
-    Figures.heatmapping_data(segment_angles, "segment_angles")
+    Figures.heatmapping_data(segment_angles[0], segment_angles, "segment_angles")
 
     # export antennae angles
     antennae_angles = centi.csv_antennae_angles
-    Figures.heatmapping_data(antennae_angles, "antennae_angles")
+    Figures.heatmapping_data(range(2), antennae_angles, "antennae_angles")
 
 
 # filename = "polya_t3_d11_skel (2).avi"
@@ -944,9 +1052,9 @@ fourcc = cv2.VideoWriter_fourcc(*'mp4v')
 video = cv2.VideoWriter(video_name, fourcc, fps, (int(width), int(height))) 
 start_time = time.time()
 
+
 #around 44 contours
 while (cap.isOpened()):
-
     ret, frame = cap.read()
     if ret == False:
         break
@@ -970,4 +1078,4 @@ video.release()
 cv2.destroyAllWindows()
 
 export_csv(centi)
-# export_heatmap(centi)
+export_heatmap(centi)

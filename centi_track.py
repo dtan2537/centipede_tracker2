@@ -11,7 +11,7 @@ from pathlib import Path
 import time
 
 # 
-full_file_path_to_video = r"C:\Users\data\Documents\gatech assignments\CrabLab\centipede_tracker2\processed_videos\subB_t3_d4_labelled.mp4"
+full_file_path_to_video = r"C:\Users\data\Documents\gatech assignments\CrabLab\centipede_tracker2\processed_videos\2025_06_18_15_04_07_Top_subA3_labelled.mp4"
 filename = Path(full_file_path_to_video).name
 
 class centipede:
@@ -317,7 +317,7 @@ class centipede:
         head_dists = [Calculations.accurate_point_polygon(contour, head.tolist()) for contour in self.leg_contours]
         tail_dists = [Calculations.accurate_point_polygon(contour, tail.tolist()) for contour in self.leg_contours]
 
-        min_head_dists_idx = np.argpartition(head_dists, 4)[:4]
+        min_head_dists_idx = np.argpartition(head_dists, 6)[:6]
         min_tail_dists_idx = np.argpartition(tail_dists, 4)[:4]
 
         calc_diagonal = lambda contour: np.sqrt(sum(cv2.boundingRect(contour)[2:]))
@@ -1048,6 +1048,7 @@ if cap.isOpened():
     fps = cap.get(cv2.CAP_PROP_FPS)
 
 video_name = f"output_files/videos/{file_title}_labelled.mp4"
+# fourcc = cv2.VideoWriter_fourcc(*'avc1')
 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
 video = cv2.VideoWriter(video_name, fourcc, fps, (int(width), int(height))) 
 start_time = time.time()

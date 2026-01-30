@@ -4,6 +4,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from skimage.morphology import skeletonize
+from skimage import io, img_as_float
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QApplication, 
@@ -71,7 +72,7 @@ class MainWindow(QMainWindow):
         self.parameter_list = ["body ant ratio", "min thresh", "top weight", "bottom weight"
                           , "left weight", "right weight", "mask top", "mask bottom"
                           , "mask left", "mask right"]
-        self.default_values = [0.1, 120, 1, 1, 1, 1, 10, 20, 70, 40]
+        self.default_values = [0.1, 160, 1, 1, 1, 1, 10, 20, 70, 40]
         
         param_edit_list = []
         for param in self.parameter_list:
@@ -170,6 +171,8 @@ class ProcessFrame():
         self.file_title = self.filename.split(".")[0]
         self.mask_poly = None
 
+        self.backSub = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=16, detectShadows=False)
+        self.clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
 
     def poly_mask_frame(self, frame, val=0):
         """Mask components from window of video
@@ -187,8 +190,14 @@ class ProcessFrame():
         masked = cv2.bitwise_and(frame, frame, mask=mask)
         return masked
 
+    def gray_frame(self, frame):
+        """Convert frame to grayscale if not already.
+        """
+        if len(frame.shape) > 2:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        return frame
 
-    def pad_mask_frame(self, frame, preproc=True):
+    def pad_mask_frame(self, frame, preproc=True, white_bg=False):
         """crop the frame to the relevant section
         """
         if len(frame.shape) > 2:
@@ -200,10 +209,7 @@ class ProcessFrame():
         mask[height - bottom:, :] = 0  # Bottom region
         mask[:, :left] = 0        # Left region
         mask[:, width - right:] = 0   # Right region
-        if preproc:
-            frame[mask==0] = 0
-        else:
-            frame[mask==0] = 255
+        frame[mask==0] = 0 if not white_bg else 255
         masked = frame
 
         if not preproc:
@@ -232,7 +238,7 @@ class ProcessFrame():
         inverted = ~gray
         masked = self.pad_mask_frame(inverted)
         
-        cv2.imshow("masked", masked)
+        # cv2.imshow("masked", masked)
 
         ret, thresh = cv2.threshold(masked, 180, 255, cv2.THRESH_BINARY)
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -245,39 +251,99 @@ class ProcessFrame():
         self.br = (max(x + w, self.br[0]), max(y + h, self.br[1]))
   
 
+    def mask_top_wall(self, frame, left_pad, right_pad):
+        """Mask the top wall of the centipede video based on the left and right padding values."""
+        height, width = frame.shape[:2]
+        polygon = np.array([[
+            (0, 0),
+            (width, 0),
+            (0, left_pad),
+            (width, right_pad)
+        ]], dtype=np.int32)
+        mask = np.zeros(frame.shape[:2], dtype=np.uint8) * 255
+        cv2.fillPoly(mask, polygon, 255)
+        masked = cv2.bitwise_and(frame, frame, mask=mask)
+        return masked
+
+
+    def morph_reconstruction(self, marker, mask):
+        """
+        Regrows the 'marker' seeds until they fill the 'mask' boundaries.
+        Used here to recover thin legs while ignoring isolated noise spots.
+        """
+        kernel = np.ones((3, 3), np.uint8)
+        while True:
+            expanded = cv2.dilate(marker, kernel)
+            new_marker = cv2.bitwise_and(expanded, mask)
+            if (new_marker == marker).all():
+                break
+            marker = new_marker
+        return marker
+
+    def unsharp_mask(self, image, kernel_size=(5, 5), sigma=1.0, amount=1.0, threshold=0):
+        """
+        Return a sharpened version of the image using unsharp masking.
+        """
+        blurred = cv2.GaussianBlur(image, kernel_size, sigma)
+        sharpened = float(amount + 1) * image - float(amount) * blurred
+        sharpened = np.clip(sharpened, 0, 255).astype(np.uint8)
+        
+        if threshold > 0:
+            low_contrast_mask = np.absolute(image - blurred) < threshold
+            np.copyto(sharpened, image, where=low_contrast_mask)
+            
+        return sharpened
+
     def process_frame(self, frame):
-        """Process the frame to leave only legs and midline of the centipede."""
-        # gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        gray = frame
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
-        midline_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (11, 11))
-        small_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        cl = clahe.apply(gray)
 
-        # adaptive thresholding to use different threshold 
-        # values on different regions of the frame.
-        blur = ~gray
+        result = self.unsharp_mask(cl, amount=10.0, threshold=1)
+
+        kernel = np.ones((1,1), np.uint8)
+        denoised = cv2.fastNlMeansDenoising(result, None, h=50, templateWindowSize=7, searchWindowSize=21)
+
+        mask = cv2.adaptiveThreshold(denoised, 255, 
+                                        cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                        cv2.THRESH_BINARY, 101, 10)
+        adaptive_thresh = cv2.adaptiveThreshold(denoised, 255, 
+                                        cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                        cv2.THRESH_BINARY, 101, 50)
+        cleaned = cv2.morphologyEx(adaptive_thresh, cv2.MORPH_CLOSE, kernel, iterations=10)
 
 
-        ret, thresh = cv2.threshold(blur, self.global_min_thresh, 255, cv2.THRESH_BINARY)
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        largest_contour_index = max(range(len(contours)), key=lambda i: cv2.contourArea(contours[i]))
-        contours = [contour for i, contour in enumerate(contours) if i != largest_contour_index]
-        cv2.drawContours(thresh, contours, -1, 0, thickness=cv2.FILLED)
+        cropped_gray = self.pad_mask_frame(~gray, preproc=True)
+        ret, global_thresh = cv2.threshold(cropped_gray, self.global_min_thresh, 255, cv2.THRESH_BINARY)
+
+        adapt_thresh = self.pad_mask_frame(~cleaned, preproc=True)
+
+        thresh = adapt_thresh | global_thresh
+
+        midline_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (17, 17))
 
         midline = cv2.erode(thresh, midline_kernel, iterations=1)
+        midline = cv2.dilate(midline, midline_kernel, iterations=2)
+        comical_midline = cv2.dilate(midline, midline_kernel, iterations=8)
 
+        thresh[comical_midline == 0] = 0
 
-        opened = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
-        opened = cv2.dilate(opened, small_kernel, iterations=1)
-        legs_only_frame = thresh & ~opened
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        largest_contour_index = max(range(len(contours)), key=lambda i: cv2.contourArea(contours[i]))
+        thresh_filtered = np.zeros_like(thresh)
+        cv2.drawContours(thresh_filtered, contours, largest_contour_index, 255, thickness=cv2.FILLED)
+        thresh[thresh_filtered == 0] = 0
 
-
-        midline = cv2.GaussianBlur(midline, (27, 27), 0)
-        binary_bool = midline > 0
-        skeleton = skeletonize(binary_bool)
+        midline_shape = cv2.GaussianBlur(midline, (27, 27), 0) > 0
+        skeleton = skeletonize(midline_shape)
         skeleton = (skeleton * 255).astype(np.uint8)
         
+        thresh[midline>0] = 0
+        centi_processed = thresh | skeleton
+        white_frame = ~centi_processed
+        # cv2.imwrite("out_process.png", thresh)    
+
         midline_contour, _ = cv2.findContours(skeleton, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 
         if len(midline_contour) == 0:
@@ -285,10 +351,6 @@ class ProcessFrame():
         else:
             midline_contour = midline_contour[0]
             self.find_head(midline_contour)
-
-
-        midline_and_legs = legs_only_frame | skeleton
-        white_frame = ~midline_and_legs
 
         return white_frame
     
@@ -422,7 +484,7 @@ if __name__ == "__main__":
         if ret == False:
             break
         proc_frame.preprocess_frame(frame) # get the relevant video section only
-        cv2.waitKey(25)
+        cv2.waitKey(1)
 
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0) # reset video to first frame
     proc_frame.update_win_size()
@@ -438,9 +500,10 @@ if __name__ == "__main__":
         ret, frame = cap.read()
         if ret == False:
             break
-        masked_frame = proc_frame.pad_mask_frame(frame, preproc=False)
-        new_frame = proc_frame.process_frame(masked_frame)
-        embedded_frame = proc_frame.embed_frame(new_frame, frame.shape)
+        # gray_frame = proc_frame.gray_frame(frame)
+        new_frame = proc_frame.process_frame(frame)
+        # embedded_frame = proc_frame.embed_frame(new_frame, frame.shape)
+        embedded_frame = new_frame
         cv2.imshow("Processed", embedded_frame)
 
         video.write(embedded_frame)

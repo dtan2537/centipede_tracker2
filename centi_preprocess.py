@@ -6,6 +6,7 @@ import numpy as np
 from skimage.morphology import skeletonize
 from skimage import io, img_as_float
 from pathlib import Path
+from dataclasses import dataclass
 from PyQt6.QtWidgets import (
     QApplication, 
     QMainWindow, 
@@ -17,8 +18,15 @@ from PyQt6.QtWidgets import (
     QLabel,
     QFileDialog,
     QFormLayout,
-    QMessageBox
+    QMessageBox,
+    QSlider,
+    QSpacerItem,
+    QSizePolicy,
+    QComboBox
 )
+from PyQt6 import QtCore
+from PyQt6.QtGui import QImage, QPixmap
+
 
 def set_directory_tree():
     """Set up required directory structure for the application.
@@ -39,21 +47,31 @@ class MainWindow(QMainWindow):
     """
     def __init__(self):
         super().__init__()
-
-        self.setWindowTitle("My App")
-        self.resize(300, 200)
-        self.json_file = "process_values.json"
+        self.cap = None
+        self.setWindowTitle("Centipede Preprocessing Parameters")
+        self.data = None
+        self.filepath = None
+        # self.resize(300, 200)
 
         container_layout = QVBoxLayout()
         container_widget = QWidget()
         container_widget.setLayout(container_layout)
     
-        form_layout = QFormLayout()
 
         browse_layout = QHBoxLayout()
         container_layout.addLayout(browse_layout)
 
-        container_layout.addLayout(form_layout)
+        panel_layout = QHBoxLayout()
+        container_layout.addLayout(panel_layout)
+
+        left_layout = QVBoxLayout()
+    
+        self.param_panel = ParameterPanel()
+        panel_layout.addLayout(left_layout)
+        left_layout.addWidget(self.param_panel)
+
+        self.frame_panel = FramePanel(self.param_panel.get_default_params())
+        panel_layout.addWidget(self.frame_panel)
 
         browse_btn = QPushButton('Browse')
         browse_btn.clicked.connect(self.open_file_dialog)
@@ -65,24 +83,44 @@ class MainWindow(QMainWindow):
         browse_layout.addWidget(self.browse_line)
         browse_layout.addWidget(browse_btn)
 
-
-        update_vals_btn = QPushButton("Apply")
-        update_vals_btn.clicked.connect(self.update_values_json)
-
-        self.parameter_list = ["body ant ratio", "min thresh", "top weight", "bottom weight"
-                          , "left weight", "right weight", "mask top", "mask bottom"
-                          , "mask left", "mask right"]
-        self.default_values = [0.1, 160, 1, 1, 1, 1, 10, 20, 70, 40]
         
-        param_edit_list = []
-        for param in self.parameter_list:
-            param_edit = QLineEdit()
-            param_edit_list.append(param_edit)
-            form_layout.addRow(param, param_edit)
-        form_layout.addWidget(update_vals_btn)
+        update_vals_btn = QPushButton("Apply")
+        update_vals_btn.clicked.connect(self.apply_btn_clicked)
 
-        self.param_edit_list = param_edit_list
+        preproc_btn = QPushButton("Preprocess")
+        preproc_btn.clicked.connect(self.preproc_btn_clicked)
+        preproc_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #b175ff;
+                color: white;
+                border-radius: 5px;
+                padding: 5px;
+            }
+            QPushButton:hover {
+                background-color: #8129f2; /* A slightly different purple on hover */
+            }
+            QPushButton:pressed {
+                background-color: #4B0082; /* Indigo when clicked */
+            }
+        """)
+
+        left_layout.addWidget(update_vals_btn)
+        left_layout.addWidget(preproc_btn)
+
+        spacer = QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
+        left_layout.addItem(spacer)
+
         self.setCentralWidget(container_widget)
+
+    def apply_btn_clicked(self):
+        self.data = self.param_panel.get_user_params()
+        self.frame_panel.set_parameter_dict(self.data)
+        self.frame_panel.update_image_display()
+
+    def preproc_btn_clicked(self):
+        self.apply_btn_clicked()
+        self.param_panel.update_values_json()
+        self.close()
 
     def open_file_dialog(self):
         file_filter = "Video Files (*.mp4 *.avi *.mov *.mkv)"
@@ -94,11 +132,132 @@ class MainWindow(QMainWindow):
         )
         if filename:
             path = Path(filename)
+            self.filepath = path
+            self.file_title = path.name.split(".")[0]
             self.browse_line.setText(str(path))
-            self.load_values_json()
+
+            if self.cap is not None:
+                self.cap.release()
+            self.cap = cv2.VideoCapture(path)
+            self.update_panels(path, self.cap)
+
+
+    def update_panels(self, path, cap):
+        self.param_panel.update(path=path, cap=cap)
+        self.frame_panel.update(cap=cap)
+            
+@dataclass
+class Parameter():
+    name: str
+    step_size: 1
+    minimum: 0
+    maximum: 100
+    default: 0
+    odd_only: bool = False
+    ui_step_size: int = 1
+    ui_minimum: int = 0
+    ui_maximum: int = 100
+    slider = None
+    edit = None
+    layout = None
+    tooltip: str = ""
+    
+
+    def __post_init__(self):
+        self.ui_step_size = 2 if self.odd_only else 1
+        self.factor = self.ui_step_size / self.step_size
+        self.ui_minimum = int(self.minimum * self.factor)
+        self.ui_maximum = int(self.maximum * self.factor)
+        self.value = self.default
+
+    def create_ui(self):
+        self.slider = QSlider()
+        self.edit = QLineEdit()
+        self.label = QLabel()
+        self.layout = QHBoxLayout()
+        self.layout.addWidget(self.slider)
+        self.layout.addWidget(self.edit)
+        self.set_slider()
+        self.set_edit()
+        self.set_label()
+
+    def set_value(self, value):
+        self.slider_func(float(value))
+        self.edit_func()
+
+    def get_value(self):
+        value = None
+        try:
+            value = int(self.value)
+        except Exception:
+            value = float(self.value)
+        return value
+
+    def set_slider(self):
+        self.slider.setFixedWidth(200)
+        self.slider.setSingleStep(1)
+        self.slider.setOrientation(QtCore.Qt.Orientation.Horizontal)
+        self.slider.setMinimum(self.ui_minimum)
+        self.slider.setMaximum(self.ui_maximum)
+        self.slider.setValue(int(self.default * self.factor))
+
+        self.slider.valueChanged.connect(self.slider_func)
+        
+
+    def set_edit(self):
+        self.edit.setFixedWidth(50)
+        self.edit.setText(str(self.default))
+        self.edit.editingFinished.connect(self.edit_func)
+
+    def set_label(self):
+        self.label.setText(self.name)
+        self.label.setToolTip(self.tooltip)
+
+    def edit_func(self):
+        text = self.edit.text()
+        text_int = int(float(text) * self.factor) if text.replace('.','',1).isdigit() else 0
+        text_int = max(self.ui_minimum, text_int - 1) if (self.odd_only and text_int % 2 == 0) else text_int
+        # self.edit.setText(str(text_int))
+        self.slider.setValue(text_int)
+
+    def slider_func(self, slider_val):
+        text_int = max(self.ui_minimum, slider_val - 1) if (self.odd_only and slider_val % 2 == 0) else slider_val
+        self.edit.setText(f"{(text_int/self.factor):g}")
+        self.value = self.edit.text()
+
+    #TODO: add info bars
+
+class ParameterPanel(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.filepath = None
+        self.json_file = "process_values.json"
+        self.cap = None
+        self.layout = QFormLayout()
+        self.setLayout(self.layout)
+        self.parameter_list = [Parameter("Global Threshold", step_size=1, minimum=0, maximum=255, default=160, tooltip="Set every pixel value abouve x to white"),
+                               Parameter("Crop Top", step_size=1, minimum=0, maximum=100, default=0, tooltip="Mask out the top x pixels"),
+                               Parameter("Crop Bottom", step_size=1, minimum=0, maximum=100, default=0, tooltip="Mask out the bottom x pixels"),
+                               Parameter("Crop Left", step_size=1, minimum=0, maximum=100, default=0, tooltip="Mask out the left x pixels"),
+                               Parameter("Crop Right", step_size=1, minimum=0, maximum=100, default=0, tooltip="Mask out the right x pixels"),
+                               Parameter("Sharpen Amount", step_size=0.1, minimum=0, maximum=50, default=10.0, tooltip="Sharpen edges"),
+                               Parameter("CLAHE Clip Limit", step_size=0.1, minimum=0, maximum=5.0, default=2.0, tooltip="Increase contrast variance"),
+                               Parameter("Noise Filter Strength (H)", step_size=1, minimum=1, maximum=100, default=50, tooltip="Smooth out noisy patches"),
+                               Parameter("Adaptive Thresh Size", step_size=2, minimum=3, maximum=201, default=101, odd_only=True, tooltip="Focus on larger objects"),
+                               Parameter("Adaptive Thresh C", step_size=1, minimum=-100, maximum=100, default=50, tooltip="Clean background salt and pepper noise"),
+                               Parameter("Midline Kernel Size", step_size=2, minimum=1, maximum=50, default=17, odd_only=True, tooltip="Increase range of centipede aware masking") ]
+        for param in self.parameter_list:
+            param.create_ui()
+            self.layout.addRow(param.label, param.layout)
+
+    def set_filepath(self, filepath):
+        self.filepath = filepath
+
+    def set_cap(self, cap):
+        self.cap = cap
 
     def load_values_json(self):
-        filename = Path(self.browse_line.text()).name
+        filename = self.filepath.name
         file = self.json_file
         with open(file, 'r') as json_file:
             try:
@@ -106,29 +265,38 @@ class MainWindow(QMainWindow):
                 if filename in json_data:
                     parameter_data = json_data[filename]
                     dict_values = list(parameter_data.values())
-                    for count, edit in enumerate(self.param_edit_list):
-                        edit.setText(str(dict_values[count]))
-                else:
-                    for count, edit in enumerate(self.param_edit_list):
-                        default_value = str(self.default_values[count])
-                        edit.setText(default_value)
+                    for i in range(len(self.parameter_list)):
+                        param = self.parameter_list[i]
+                        param.set_value(dict_values[i]) 
             except json.JSONDecodeError:
-                for count, edit in enumerate(self.param_edit_list):
-                    default_value = str(self.default_values[count])
-                    edit.setText(default_value)
+                pass
+
+    def get_user_params(self):
+        parameter_data = {param.name: param.value for param in self.parameter_list}
+        self.data = parameter_data
+        return parameter_data
+    
+    def get_default_params(self):
+        parameter_data = {param.name: param.default for param in self.parameter_list}
+        return parameter_data
+    
+    def update(self, path, cap):
+        self.set_filepath(path)
+        self.set_cap(cap)
+        image_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        image_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        dim_dict = {"Crop Top": image_height,
+         "Crop Left": image_width,
+         "Crop Right": image_width,
+         "Crop Bottom": image_height}
+        for param in self.parameter_list:
+            if param.name in dim_dict:
+                param.slider.setMaximum(dim_dict[param.name])
+        self.load_values_json()
 
     def update_values_json(self):
-        file_path = self.browse_line.text()
-        filename = Path(file_path).name
-        param_values = []
-        for idx, edit in enumerate(self.param_edit_list):
-            text = edit.text()
-            if text.strip() == "":
-                QMessageBox.warning(self, "Input Error", f"Parameter '{self.parameter_list[idx]}' cannot be empty.")
-                return
-            param_values.append(text)
-        
-        parameter_data = dict(zip(self.parameter_list, param_values))
+        filename = self.filepath.name
+        parameter_data = self.get_user_params()
         file = self.json_file
         file_data = {}
         try:
@@ -141,22 +309,140 @@ class MainWindow(QMainWindow):
             with open(file, 'w') as json_file:
                 json.dump(file_data, json_file, indent=4)
 
-        self.data = parameter_data
-        self.filepath = file_path
-        self.close()
+        # self.filepath = file_path
 
+
+class FramePanel(QWidget):
+    def __init__(self, default_params):
+        super().__init__()
+        self.filepath = None
+        self.cap = None
+        self.parameter_dict = default_params
+        self.process_frame = ProcessFrame(self.parameter_dict)
+
+        self.layout = QVBoxLayout()
+        self.setLayout(self.layout)
+
+        self.frame_form = QHBoxLayout()
+
+        self.frame_option_label = QLabel("Pipeline Stage:")
+
+        self.frame_option_dropdown = QComboBox()
+        self.options = ["1-Original", "2-Grayscale", "3-CLAHE", "4-Sharpened", "5-Denoised", "6-Adaptive Threshold", "7-Combined Threshold", "8-Cleaned", "9-Final Contour Passed Frame"]
+        self.frame_option = self.options[-2]
+        self.frame_option_dropdown.setCurrentIndex(6)
+        
+        for i in range(len(self.options)):
+            self.frame_option_dropdown.addItem(self.options[i], userData=i)
+
+        self.frame_form.addWidget(self.frame_option_label)
+        self.frame_form.addWidget(self.frame_option_dropdown)
+
+
+        self.frame_label = QLabel("Frame: ")
+        self.frame_form.addWidget(self.frame_label)
+
+        self.frame_edit = QLineEdit()
+        self.frame_edit.setFixedWidth(50)
+        self.frame_form.addWidget(self.frame_edit)
+
+        self.frame_slider = QSlider()
+        self.frame_slider.setSingleStep(1)
+        self.frame_slider.setOrientation(QtCore.Qt.Orientation.Horizontal)
+        self.frame_slider.setMinimum(0)
+        self.frame_slider.setMaximum(100)  # Placeholder maximum value
+
+        self.frame_slider.valueChanged.connect(lambda value: self.frame_edit.setText(str(value)))
+
+        self.frame_edit.textChanged.connect(lambda text: self.frame_slider.setValue(int(text) if text.isdigit() else 0))
+
+        self.frame_slider.setValue(0)
+        self.frame_edit.setText(str(self.frame_slider.value()))
+
+        self.layout.addLayout(self.frame_form)
+        self.frame_form.addWidget(self.frame_label)
+        self.frame_form.addWidget(self.frame_slider)
+        self.frame_form.addWidget(self.frame_edit)
+        
+        self.max_dim = 600
+        self.placeholder_image = np.zeros((self.max_dim, self.max_dim), dtype=np.uint8)
+        self.image_label = QLabel()
+        self.update_image_display()
+        self.layout.addWidget(self.image_label)
+        
+
+    def set_filepath(self, filepath):
+        self.filepath = filepath
+
+    def set_cap(self, cap):
+        self.cap = cap
+
+    def set_parameter_dict(self, parameter_dict):
+        self.parameter_dict = parameter_dict
+
+    def on_frame_slider_change(self, value):
+        self.frame_edit.setText(str(value))
+        self.update_image_display()
+
+    def update_image_display(self):
+        if self.cap is None:
+            self.image = self.placeholder_image
+        else:
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, self.frame_slider.value())
+            ret, frame = self.cap.read()
+            if ret:
+                self.process_frame.set_user_params(self.parameter_dict)
+                index = self.frame_option_dropdown.currentData()
+                image = self.process_frame.process_frame(frame)[index]
+                # print(gray_frame.dtype)
+                self.image = image
+            else:
+                self.image = self.placeholder_image
+            cv2.waitKey(1)
+
+        print(self.image.shape)
+        image_height, image_width = self.image.shape[:2]
+
+        if self.image.ndim == 2:
+            image_format = QImage.Format.Format_Grayscale8
+        else:
+            image_format = QImage.Format.Format_BGR888
+        
+        qimage = QImage(self.image.data, self.image.shape[1], self.image.shape[0], self.image.strides[0], image_format)
+
+        pixmap = QPixmap.fromImage(qimage.copy())
+        scaled_pixmap = pixmap
+        print(image_height, image_width, self.max_dim)
+        if image_height > self.max_dim or image_width > self.max_dim:
+            print("scaled to height")
+
+            if image_height > image_width:
+                scaled_pixmap = pixmap.scaledToHeight(self.max_dim, QtCore.Qt.TransformationMode.SmoothTransformation)
+            else:
+                scaled_pixmap = pixmap.scaledToWidth(self.max_dim, QtCore.Qt.TransformationMode.SmoothTransformation)
+        self.image_label.setPixmap(scaled_pixmap)
+
+        if not self.process_frame.is_valid_frame:
+            QMessageBox.warning(self, "Input Error", f"Parameters produce an invalid frame")
+        # Update display logic would go here (e.g., set pixmap on a QLabel in the UI)
+        # Example: self.image_label.setPixmap(pixmap)
+
+    def update(self, cap):
+        self.set_cap(cap)
+        self.frame_slider.setMaximum(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) - 1)
+        self.update_image_display()
 
 class ProcessFrame():
 
     def __init__(self, user_params):
-        self.body_ant_ratio = float(user_params["body ant ratio"])
-        self.global_min_thresh = int(user_params["min thresh"])
-        self.top_weight = float(user_params["top weight"])
-        self.bottom_weight = float(user_params["bottom weight"])
-        self.left_weight = float(user_params["left weight"])
-        self.right_weight = float(user_params["right weight"])
-        self.mask_vals = (int(user_params["mask top"]), int(user_params["mask bottom"]),
-                            int(user_params["mask left"]), int(user_params["mask right"]))
+        self.body_ant_ratio = 0.1
+        self.top_weight = 1.0
+        self.bottom_weight = 1.0
+        self.left_weight = 1.0
+        self.right_weight = 1.0
+        self.global_min_thresh = int(user_params["Global Threshold"])
+        self.mask_vals = (int(user_params["Crop Top"]), int(user_params["Crop Bottom"]),
+                            int(user_params["Crop Left"]), int(user_params["Crop Right"]))
         self.br = [0, 0]
         self.tl = [1000000, 1000000]
         self.body_end1 = None
@@ -166,13 +452,25 @@ class ProcessFrame():
         self.body_end1_dist = 0
         self.body_end2_dist = 0
 
-        self.full_path = window.filepath
-        self.filename = Path(self.full_path).name
-        self.file_title = self.filename.split(".")[0]
         self.mask_poly = None
 
         self.backSub = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=16, detectShadows=False)
         self.clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        self.is_valid_frame = True
+        
+        self.user_params = user_params
+        self.set_user_params(user_params)
+
+    def set_user_params(self, user_params):
+        self.global_min_thresh = int(user_params["Global Threshold"])
+        self.mask_vals = (int(user_params["Crop Top"]), int(user_params["Crop Bottom"]),
+                            int(user_params["Crop Left"]), int(user_params["Crop Right"]))
+        self.sharpen = float(user_params["Sharpen Amount"])
+        self.clahe_clip = float(user_params["CLAHE Clip Limit"])
+        self.noise_strength = int(user_params["Noise Filter Strength (H)"])
+        self.adapt_size = int(user_params["Adaptive Thresh Size"])
+        self.adapt_c = int(user_params["Adaptive Thresh C"])
+        self.midline_kernel_size = int(user_params["Midline Kernel Size"])
 
     def poly_mask_frame(self, frame, val=0):
         """Mask components from window of video
@@ -238,7 +536,7 @@ class ProcessFrame():
         inverted = ~gray
         masked = self.pad_mask_frame(inverted)
         
-        # cv2.imshow("masked", masked)
+        cv2.imshow("Cropped Video", masked)
 
         ret, thresh = cv2.threshold(masked, 180, 255, cv2.THRESH_BINARY)
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -295,24 +593,26 @@ class ProcessFrame():
         return sharpened
 
     def process_frame(self, frame):
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        frame_save = frame.copy()
+        clahe = cv2.createCLAHE(clipLimit=self.clahe_clip, tileGridSize=(8,8))
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
+        gray_save = gray.copy()
         cl = clahe.apply(gray)
-
-        result = self.unsharp_mask(cl, amount=10.0, threshold=1)
-
+        clahe_save = cl.copy()
+        result = self.unsharp_mask(cl, amount=self.sharpen, threshold=1)
+        sharp_save = result.copy()
         kernel = np.ones((1,1), np.uint8)
-        denoised = cv2.fastNlMeansDenoising(result, None, h=50, templateWindowSize=7, searchWindowSize=21)
-
-        mask = cv2.adaptiveThreshold(denoised, 255, 
-                                        cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                        cv2.THRESH_BINARY, 101, 10)
+        denoised = cv2.fastNlMeansDenoising(result, None, h=self.noise_strength, templateWindowSize=7, searchWindowSize=21)
+        denoise_save = denoised.copy()
+        # mask = cv2.adaptiveThreshold(denoised, 255, 
+        #                                 cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+        #                                 cv2.THRESH_BINARY, 101, 10)
         adaptive_thresh = cv2.adaptiveThreshold(denoised, 255, 
                                         cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                        cv2.THRESH_BINARY, 101, 50)
+                                        cv2.THRESH_BINARY, self.adapt_size, self.adapt_c)
+        adaptive_save = adaptive_thresh.copy()
         cleaned = cv2.morphologyEx(adaptive_thresh, cv2.MORPH_CLOSE, kernel, iterations=10)
-
 
         cropped_gray = self.pad_mask_frame(~gray, preproc=True)
         ret, global_thresh = cv2.threshold(cropped_gray, self.global_min_thresh, 255, cv2.THRESH_BINARY)
@@ -321,7 +621,9 @@ class ProcessFrame():
 
         thresh = adapt_thresh | global_thresh
 
-        midline_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (17, 17))
+        combined_save = thresh.copy()
+
+        midline_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (self.midline_kernel_size, self.midline_kernel_size))
 
         midline = cv2.erode(thresh, midline_kernel, iterations=1)
         midline = cv2.dilate(midline, midline_kernel, iterations=2)
@@ -329,30 +631,34 @@ class ProcessFrame():
 
         thresh[comical_midline == 0] = 0
 
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        largest_contour_index = max(range(len(contours)), key=lambda i: cv2.contourArea(contours[i]))
-        thresh_filtered = np.zeros_like(thresh)
-        cv2.drawContours(thresh_filtered, contours, largest_contour_index, 255, thickness=cv2.FILLED)
-        thresh[thresh_filtered == 0] = 0
+        cleaned_save = thresh.copy()
 
-        midline_shape = cv2.GaussianBlur(midline, (27, 27), 0) > 0
-        skeleton = skeletonize(midline_shape)
-        skeleton = (skeleton * 255).astype(np.uint8)
-        
-        thresh[midline>0] = 0
-        centi_processed = thresh | skeleton
-        white_frame = ~centi_processed
-        # cv2.imwrite("out_process.png", thresh)    
+        white_frame = thresh.copy()
+        try:
+            contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+            largest_contour_index = max(range(len(contours)), key=lambda i: cv2.contourArea(contours[i]))
+            thresh_filtered = np.zeros_like(thresh)
+            cv2.drawContours(thresh_filtered, contours, largest_contour_index, 255, thickness=cv2.FILLED)
+            thresh[thresh_filtered == 0] = 0
 
-        midline_contour, _ = cv2.findContours(skeleton, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+            midline_shape = cv2.GaussianBlur(midline, (27, 27), 0) > 0
+            skeleton = skeletonize(midline_shape)
+            skeleton = (skeleton * 255).astype(np.uint8)
+            
+            thresh[midline>0] = 0
+            centi_processed = thresh | skeleton
+            white_frame = ~centi_processed
 
-        if len(midline_contour) == 0:
-            raise Exception("Parameters are not valid for this video. Please adjust the parameters in the UI.")
-        else:
+            midline_contour, _ = cv2.findContours(skeleton, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
             midline_contour = midline_contour[0]
             self.find_head(midline_contour)
+            self.is_valid_frame = True
 
-        return white_frame
+        except Exception:
+            self.is_valid_frame = False
+
+
+        return [frame_save, gray_save, clahe_save, sharp_save, denoise_save, adaptive_save, combined_save, cleaned_save, white_frame]
     
     def embed_frame(self, frame, shape):
         """Embed the processed frame back into the original frame size."""
@@ -445,17 +751,19 @@ class ProcessFrame():
             return self.body_end1
         return self.body_end2
 
-    def update_head_json(self, head):
-        file = "head.json"
+    def update_head_json(self, head, filepath):
+        filename = Path(filepath).name
+        file_title = filename.split(".")[0]
+        json_filename = "head.json"
         data = {}
         try:
-            with open(file, 'r') as json_file:
+            with open(json_filename, 'r') as json_file:
                 data = json.load(json_file)
         except:
             pass
         finally:
-            data[self.file_title] = head.tolist()
-            with open(file, 'w') as json_file:
+            data[file_title] = head.tolist()
+            with open(json_filename, 'w') as json_file:
                 json.dump(data, json_file, indent=4)
 
 
@@ -471,7 +779,7 @@ if __name__ == "__main__":
 
     proc_frame = ProcessFrame(dict_values)
 
-    cap = cv2.VideoCapture(proc_frame.full_path)
+    cap = cv2.VideoCapture(window.filepath)
     # get video properties
     if cap.isOpened():
         fps = cap.get(cv2.CAP_PROP_FPS)
@@ -489,7 +797,7 @@ if __name__ == "__main__":
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0) # reset video to first frame
     proc_frame.update_win_size()
 
-    video_name = f"processed_videos/{proc_frame.file_title}_labelled.mp4"
+    video_name = f"processed_videos/{window.file_title}_processed.mp4"
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     video = cv2.VideoWriter(video_name, fourcc, fps, (width, height), isColor=False) 
     print("Processing video...")
@@ -501,7 +809,7 @@ if __name__ == "__main__":
         if ret == False:
             break
         # gray_frame = proc_frame.gray_frame(frame)
-        new_frame = proc_frame.process_frame(frame)
+        new_frame = proc_frame.process_frame(frame)[-1]
         # embedded_frame = proc_frame.embed_frame(new_frame, frame.shape)
         embedded_frame = new_frame
         cv2.imshow("Processed", embedded_frame)
@@ -519,6 +827,6 @@ if __name__ == "__main__":
     cv2.destroyAllWindows()
 
     head = proc_frame.determine_head()
-    proc_frame.update_head_json(head)
+    proc_frame.update_head_json(head, window.file_title)
 
     print("Finished Processing")

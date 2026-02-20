@@ -38,6 +38,7 @@ def set_directory_tree():
     Path("output_files/videos").mkdir(parents=True, exist_ok=True)
     Path("processed_videos").mkdir(parents=True, exist_ok=True)
     Path("compressed").mkdir(parents=True, exist_ok=True)
+    Path("py_extensions").mkdir(parents=True, exist_ok=True)
     Path("process_values.json").touch(exist_ok=True)
     Path("head.json").touch(exist_ok=True)
 
@@ -51,6 +52,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Centipede Preprocessing Parameters")
         self.data = None
         self.filepath = None
+        self.param_panel = ParameterPanel()
+        self.process_frame = ProcessFrame(self.param_panel.get_default_params())
+        self.frame_panel = FramePanel(self.process_frame)
+        self.add_on_python_extension = PythonExtension(self.process_frame)
+
+
         # self.resize(300, 200)
 
         container_layout = QVBoxLayout()
@@ -66,12 +73,13 @@ class MainWindow(QMainWindow):
 
         left_layout = QVBoxLayout()
     
-        self.param_panel = ParameterPanel()
         panel_layout.addLayout(left_layout)
         left_layout.addWidget(self.param_panel)
 
-        self.frame_panel = FramePanel(self.param_panel.get_default_params())
+
         panel_layout.addWidget(self.frame_panel)
+
+        left_layout.addWidget(self.add_on_python_extension)
 
         browse_btn = QPushButton('Browse')
         browse_btn.clicked.connect(self.open_file_dialog)
@@ -145,7 +153,59 @@ class MainWindow(QMainWindow):
     def update_panels(self, path, cap):
         self.param_panel.update(path=path, cap=cap)
         self.frame_panel.update(cap=cap)
-            
+
+
+class PythonExtension(QWidget):
+    def __init__(self, process_frame):        
+        super().__init__()
+        self.layout = QHBoxLayout()
+        self.filename = None
+        self.mod_func = None
+        self.process_frame = process_frame
+        self.setLayout(self.layout)
+        self.create_ui()
+
+    def create_ui(self):
+        self.label = QLabel("Python Add-on File")
+        self.line_edit = QLineEdit()
+        self.btn_btrowse = QPushButton("Browse")
+
+        self.layout.addWidget(self.label)
+        self.layout.addWidget(self.line_edit)
+        self.layout.addWidget(self.btn_btrowse)
+
+        self.btn_btrowse.clicked.connect(self.open_file_dialog)
+        self.line_edit.textChanged.connect(lambda text: setattr(self, 'filename', text))
+
+    def open_file_dialog(self):
+        # getOpenFileName returns a tuple (filename, selected_filter)
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select File",
+            "", # Starting directory
+            "Python Files (*.py)" # Filters
+        )
+
+        if filename:
+            self.filename = filename
+            self.line_edit.setText(filename)
+            self.load_py(filename)
+
+    def load_py(self, filename):
+        #TODO: add error handling for invalid funcs
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("user_module", filename)
+        user_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(user_module)
+        if hasattr(user_module, 'main'):
+            self.mod_func = user_module.main
+            self.process_frame.set_mod_func(self.mod_func)
+        else:
+            QMessageBox.warning(self, "Function Not Found", "The selected Python file does not have a 'main' function.")
+
+    def py_extension_available(self):
+        return self.mod_func is not None
+
 @dataclass
 class Parameter():
     name: str
@@ -312,13 +372,25 @@ class ParameterPanel(QWidget):
         # self.filepath = file_path
 
 
+class ImagePipeline(dict):
+    steps = ["original", "grayscale", "modded", "clahe", "sharpened", "denoised", "adapted", "combined", "cleaned", "final"]
+    def __init__(self):
+        super().__init__()
+        self.add_default_keys()
+    
+    def add_default_keys(self):
+        for key in ImagePipeline.steps:
+            self[key] = None
+    
+
+
 class FramePanel(QWidget):
-    def __init__(self, default_params):
+    def __init__(self, process_frame):
         super().__init__()
         self.filepath = None
         self.cap = None
-        self.parameter_dict = default_params
-        self.process_frame = ProcessFrame(self.parameter_dict)
+        self.process_frame = process_frame
+        self.parameter_dict = self.process_frame.user_params
 
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
@@ -328,7 +400,7 @@ class FramePanel(QWidget):
         self.frame_option_label = QLabel("Pipeline Stage:")
 
         self.frame_option_dropdown = QComboBox()
-        self.options = ["1-Original", "2-Grayscale", "3-CLAHE", "4-Sharpened", "5-Denoised", "6-Adaptive Threshold", "7-Combined Threshold", "8-Cleaned", "9-Final Contour Passed Frame"]
+        self.options = ImagePipeline.steps
         self.frame_option = self.options[-2]
         self.frame_option_dropdown.setCurrentIndex(6)
         
@@ -393,8 +465,9 @@ class FramePanel(QWidget):
             if ret:
                 self.process_frame.set_user_params(self.parameter_dict)
                 index = self.frame_option_dropdown.currentData()
-                image = self.process_frame.process_frame(frame)[index]
-                # print(gray_frame.dtype)
+                images_dict = self.process_frame.process_frame(frame)
+                image = list(images_dict.values())[index]
+                # print(gray_frame.dtype)he he
                 self.image = image
             else:
                 self.image = self.placeholder_image
@@ -457,6 +530,7 @@ class ProcessFrame():
         self.backSub = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=16, detectShadows=False)
         self.clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
         self.is_valid_frame = True
+        self.mod_func = None
         
         self.user_params = user_params
         self.set_user_params(user_params)
@@ -471,6 +545,9 @@ class ProcessFrame():
         self.adapt_size = int(user_params["Adaptive Thresh Size"])
         self.adapt_c = int(user_params["Adaptive Thresh C"])
         self.midline_kernel_size = int(user_params["Midline Kernel Size"])
+
+    def set_mod_func(self, func):
+        self.mod_func = func
 
     def poly_mask_frame(self, frame, val=0):
         """Mask components from window of video
@@ -598,23 +675,35 @@ class ProcessFrame():
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         gray_save = gray.copy()
-        cl = clahe.apply(gray)
+
+        mod = gray
+        if self.mod_func is not None:
+            mod = self.mod_func(gray)
+            print(self.mod_func)
+
+        mod_save = mod.copy()
+
+        denoised = cv2.fastNlMeansDenoising(mod, None, h=self.noise_strength, templateWindowSize=7, searchWindowSize=21)
+        denoise_save = denoised.copy()
+
+        equalized = cv2.equalizeHist(denoised)
+
+        cl = clahe.apply(equalized)
         clahe_save = cl.copy()
         result = self.unsharp_mask(cl, amount=self.sharpen, threshold=1)
         sharp_save = result.copy()
         kernel = np.ones((1,1), np.uint8)
-        denoised = cv2.fastNlMeansDenoising(result, None, h=self.noise_strength, templateWindowSize=7, searchWindowSize=21)
-        denoise_save = denoised.copy()
+        
         # mask = cv2.adaptiveThreshold(denoised, 255, 
         #                                 cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
         #                                 cv2.THRESH_BINARY, 101, 10)
-        adaptive_thresh = cv2.adaptiveThreshold(denoised, 255, 
+        adaptive_thresh = cv2.adaptiveThreshold(sharp_save, 255, 
                                         cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
                                         cv2.THRESH_BINARY, self.adapt_size, self.adapt_c)
         adaptive_save = adaptive_thresh.copy()
         cleaned = cv2.morphologyEx(adaptive_thresh, cv2.MORPH_CLOSE, kernel, iterations=10)
 
-        cropped_gray = self.pad_mask_frame(~gray, preproc=True)
+        cropped_gray = self.pad_mask_frame(~mod, preproc=True)
         ret, global_thresh = cv2.threshold(cropped_gray, self.global_min_thresh, 255, cv2.THRESH_BINARY)
 
         adapt_thresh = self.pad_mask_frame(~cleaned, preproc=True)
@@ -630,6 +719,10 @@ class ProcessFrame():
         comical_midline = cv2.dilate(midline, midline_kernel, iterations=8)
 
         thresh[comical_midline == 0] = 0
+
+        # just for today
+        close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, close_kernel, iterations=1)
 
         cleaned_save = thresh.copy()
 
@@ -657,8 +750,19 @@ class ProcessFrame():
         except Exception:
             self.is_valid_frame = False
 
+        images_dict = ImagePipeline()
+        images_dict["original"] = frame_save
+        images_dict["grayscale"] = gray_save
+        images_dict["modded"] = mod_save
+        images_dict["clahe"] = clahe_save
+        images_dict["sharpened"] = sharp_save
+        images_dict["denoised"] = denoise_save
+        images_dict["adapted"] = adaptive_save
+        images_dict["combined"] = combined_save
+        images_dict["cleaned"] = cleaned_save
+        images_dict["final"] = white_frame
 
-        return [frame_save, gray_save, clahe_save, sharp_save, denoise_save, adaptive_save, combined_save, cleaned_save, white_frame]
+        return images_dict
     
     def embed_frame(self, frame, shape):
         """Embed the processed frame back into the original frame size."""
@@ -777,7 +881,7 @@ if __name__ == "__main__":
 
     dict_values = window.data
 
-    proc_frame = ProcessFrame(dict_values)
+    proc_frame = window.process_frame
 
     cap = cv2.VideoCapture(window.filepath)
     # get video properties
@@ -809,7 +913,7 @@ if __name__ == "__main__":
         if ret == False:
             break
         # gray_frame = proc_frame.gray_frame(frame)
-        new_frame = proc_frame.process_frame(frame)[-1]
+        new_frame = proc_frame.process_frame(frame)["final"]
         # embedded_frame = proc_frame.embed_frame(new_frame, frame.shape)
         embedded_frame = new_frame
         cv2.imshow("Processed", embedded_frame)

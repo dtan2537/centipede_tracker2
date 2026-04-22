@@ -24,5 +24,83 @@
         "Adaptive Thresh Size": 101,
         "Adaptive Thresh C": 50,
         "Midline Kernel Size": 17
+    },
+    "2025_06_18_15_17_46_Top_subC7.avi": {
+        "Global Threshold": 160,
+        "Crop Top": "117",
+        "Crop Bottom": "482",
+        "Crop Left": "429",
+        "Crop Right": "529",
+        "Sharpen Amount": "26.1",
+        "CLAHE Clip Limit": 2.0,
+        "Noise Filter Strength (H)": 50,
+        "Adaptive Thresh Size": 101,
+        "Adaptive Thresh C": 50,
+        "Midline Kernel Size": 17
+    },
+    "2338_raw.mov": {
+        "Global Threshold": 160,
+        "Crop Top": "53",
+        "Crop Bottom": "56",
+        "Crop Left": "114",
+        "Crop Right": "114",
+        "Sharpen Amount": 10.0,
+        "CLAHE Clip Limit": 2.0,
+        "Noise Filter Strength (H)": 50,
+        "Adaptive Thresh Size": 101,
+        "Adaptive Thresh C": 50,
+        "Midline Kernel Size": "1"
+    },
+    "polyP_t1_d9(1of3).mp4": {
+        "Global Threshold": "183",
+        "Crop Top": "111",
+        "Crop Bottom": "139",
+        "Crop Left": "299",
+        "Crop Right": "202",
+        "Sharpen Amount": 10.0,
+        "CLAHE Clip Limit": "0.7",
+        "Noise Filter Strength (H)": "63",
+        "Adaptive Thresh Size": "157",
+        "Adaptive Thresh C": 50,
+        "Midline Kernel Size": 17
+    },
+    "subN_t5_d6.mp4": {
+        "Global Threshold": 160,
+        "Crop Top": 0,
+        "Crop Bottom": "39",
+        "Crop Left": "209",
+        "Crop Right": "146",
+        "Sharpen Amount": "15.5",
+        "CLAHE Clip Limit": "0.5",
+        "Noise Filter Strength (H)": "73",
+        "Adaptive Thresh Size": "169",
+        "Adaptive Thresh C": "18",
+        "Midline Kernel Size": "23"
+    },
+    "Incline_30_poly_D_1.avi": {
+        "Global Threshold": "0",
+        "Crop Top": "431",
+        "Crop Bottom": "60",
+        "Crop Left": "0",
+        "Crop Right": "0",
+        "Sharpen Amount": "0",
+        "CLAHE Clip Limit": "0",
+        "Noise Filter Strength (H)": "1",
+        "Adaptive Thresh Size": "3",
+        "Adaptive Thresh C": "1",
+        "Midline Kernel Size": "7"
+    },
+    "Polymorpha_D_300umBeads_063022_trial1_comp_0.1xSpeed.avi": {
+        "Global Threshold": "170",
+        "Crop Top": "182",
+        "Crop Bottom": "185",
+        "Crop Left": "156",
+        "Crop Right": "97",
+        "Sharpen Amount": "41",
+        "CLAHE Clip Limit": "2.6",
+        "Noise Filter Strength (H)": "25",
+        "Adaptive Thresh Size": "75",
+        "Adaptive Thresh C": "51",
+        "Midline Kernel Size": "31"
     }
 }
